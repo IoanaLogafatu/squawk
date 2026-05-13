@@ -1,0 +1,67 @@
+# config.toml.example
+#
+# Copy this file to config.toml and edit it for your setup.
+# config.toml is in .gitignore — this file is the one kept in version control.
+#
+
+# ---------------------------------------------------------------------------
+# Squawk system
+# ---------------------------------------------------------------------------
+[squawk]
+data_dir = "data"    # working datasets and state files
+
+
+# ---------------------------------------------------------------------------
+# User details
+# ---------------------------------------------------------------------------
+[observer]
+latitude  = 53.7778    # decimal degrees, positive = North
+longitude = -1.5721    # decimal degrees, negative = West
+
+
+# ---------------------------------------------------------------------------
+# Ingestors
+# ---------------------------------------------------------------------------
+
+[ingestors.concorde]
+enabled = true
+
+[ingestors.personal_adsb]
+enabled               = false
+receivers             = [
+    { name = "receiver-one", url = "http://receiver-one.local/tar1090/data/aircraft.json" },
+    { name = "receiver-two", url = "http://receiver-two.local/tar1090/data/aircraft.json" },
+]
+poll_interval_seconds = 5
+timeout_seconds       = 3
+
+
+# ---------------------------------------------------------------------------
+# Storage
+# ---------------------------------------------------------------------------
+
+[storage]
+backend = "disk_drive"
+
+
+# ---------------------------------------------------------------------------
+# Processor
+# ---------------------------------------------------------------------------
+
+[processor]
+poll_interval_seconds = 5
+plugins               = ["closest_filter"]
+display               = "http"
+
+
+# ---------------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------------
+
+[display.http]
+port = 7700                              # HTTP port for the web display
+
+[display.epaper]
+port               = 7700   # HTTP port for the PNG preview page
+full_refresh_every = 600    # cycles between full e-paper refreshes
+invert             = false  # true rotates 180° (power lead at top)
