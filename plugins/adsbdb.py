@@ -2,6 +2,23 @@
 
 Enriches Aircraft records from adsbdb.com.
 
+Data sources (please honour these credits):
+
+  Aircraft data    — Planebase             https://planebase.biz/
+  Aircraft photos  — airport-data.com      https://airport-data.com/
+  Flight route data — David Taylor (Edinburgh) and Jim Mason (Glasgow).
+                      May not be copied, published, or incorporated into
+                      other databases without the explicit permission of
+                      David J Taylor, Edinburgh.
+
+  API hosting      — adsbdb.com            https://www.adsbdb.com/
+
+This plugin treats the local cache as an ephemeral working copy, not a
+republished database. It respects adsbdb's published rate limits in
+code. If you fork Squawk for anything beyond personal hobby use,
+contact the upstream maintainers before scaling traffic or persisting
+their data.
+
 Run AFTER filters that narrow the aircraft list (e.g. closest_filter).
 Running before filters means every aircraft in range triggers a
 cache/API lookup every cycle, which both wastes calls and risks
@@ -56,6 +73,7 @@ _CACHE_TTL_SECONDS = 3600
 _RATE_60S          = 512
 _RATE_300S         = 1024
 _TIMEOUT_SECONDS   = 5
+_HEADERS           = {"User-Agent": "Squawk/1.1 (+https://github.com/IoanaLogafatu/squawk)"}
 
 
 class AdsbdbEnricher(BasePlugin):
@@ -110,7 +128,7 @@ class AdsbdbEnricher(BasePlugin):
     def _fetch(self, hex_id: str, callsign: str) -> Optional[dict]:
         url = f"{_API_BASE}/{hex_id}?callsign={callsign}"
         try:
-            resp = requests.get(url, timeout=_TIMEOUT_SECONDS)
+            resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT_SECONDS)
         except Exception as exc:
             self._record_call()
             print(f"  adsbdb: error fetching {callsign}: {exc}")

@@ -63,18 +63,6 @@ port = 7700
 
 `config.toml` itself is gitignored. `config.toml.example` is the reference kept in version control — keep it in sync when adding new keys.
 
-## Included components
-
-| Type     | Name             | Purpose                                                                |
-| -------- | ---------------- | ---------------------------------------------------------------------- |
-| Ingestor | `personal_adsb`  | Polls one or more readsb/tar1090 receivers and merges the results      |
-| Ingestor | `concorde`       | Synthetic test source — flies G-BOAC overhead on a random bearing      |
-| Plugin   | `closest_filter` | Reduces the list to the single nearest aircraft                        |
-| Plugin   | `tar1090_db`     | Enriches with registration and type from wiedehopf's tar1090-db        |
-| Plugin   | `pass_through`   | No-op placeholder slot                                                 |
-| Display  | `console`        | Prints to stdout                                                       |
-| Display  | `http`           | Live web page on a configurable port (Server-Sent Events)              |
-| Display  | `epaper`         | Drives a Waveshare 2.13" e-paper HAT                                   |
 
 ## Writing your own plugin
 
@@ -118,6 +106,27 @@ The plugin is discovered by name — no registration step. See [`docs/plugins-gu
 - [`docs/display-guide.md`](docs/display-guide.md) — writing display plugins
 - [`docs/storage-guide.md`](docs/storage-guide.md) — writing a new storage backend
 - [`docs/primary_ingestor.md`](docs/primary_ingestor.md) — design notes on `personal_adsb`
+
+## Acknowledgements
+
+Squawk is a hobby project that leans heavily on free public data sources.
+Please honour their terms.
+
+| Source                               | Used by                  | Notes                                                                                                                       |
+| ------------------------------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| [wiedehopf/tar1090-db][tar1090-db]   | `tar1090_db` plugin      | Aircraft registration and type database.                                                                                    |
+| [adsbdb.com][adsbdb]                 | `adsbdb` plugin          | API that aggregates the three sources below.                                                                                |
+| &nbsp;&nbsp;↳ [Planebase][planebase] | (via adsbdb)             | Aircraft data.                                                                                                              |
+| &nbsp;&nbsp;↳ [airport-data][apdata] | (via adsbdb)             | Aircraft photographs.                                                                                                       |
+| &nbsp;&nbsp;↳ Flight routes          | (via adsbdb)             | The work of David Taylor (Edinburgh) and Jim Mason (Glasgow). **May not be copied, published, or incorporated into other databases without the explicit permission of David J Taylor, Edinburgh.** |
+
+If you fork Squawk for anything beyond personal hobby use, please contact
+the upstream maintainers before scaling traffic or persisting their data.
+
+[tar1090-db]: https://github.com/wiedehopf/tar1090-db
+[adsbdb]:     https://www.adsbdb.com/
+[planebase]:  https://planebase.biz/
+[apdata]:     https://airport-data.com/
 
 ## Licence
 

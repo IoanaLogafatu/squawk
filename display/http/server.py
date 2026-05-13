@@ -3,6 +3,8 @@ display/http_display/server.py
 
 HTTP server internals for the http_display plugin.
 
+"intended for local/private network use; route data may be subject to upstream republishing restrictions."
+
 SharedState  — thread-safe pub/sub store; the plugin writes, SSE handlers read.
 make_handler — returns a configured BaseHTTPRequestHandler subclass.
 render_data  — converts Aircraft (or None) to a JSON string for the browser.
