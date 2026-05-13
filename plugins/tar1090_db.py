@@ -88,14 +88,9 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
 
 
 def get(cfg: dict) -> Tar1090DbEnricher:
-    if "csv_path" in cfg:
-        csv_path = Path(cfg["csv_path"])
-        if not csv_path.is_absolute():
-            csv_path = Path(__file__).parent.parent / csv_path
-    else:
-        from config import config as squawk_config
-        data_dir = Path(squawk_config.squawk.data_dir)
-        csv_path = data_dir / "plugins" / "tar1090_db" / "aircraft.csv"
+    from config import config as squawk_config
+    data_dir = Path(squawk_config.squawk.data_dir)
+    csv_path = data_dir / "plugins" / "tar1090_db" / "aircraft.csv"
 
     if _needs_refresh(csv_path):
         try:
