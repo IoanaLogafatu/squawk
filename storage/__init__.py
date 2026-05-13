@@ -4,7 +4,7 @@ storage/__init__.py
 Storage backend interface and factory.
 
 Each backend implements BaseStorage. Add a new backend by creating
-storage/<name>/ with a get(data_dir) factory function — nothing else
+storage/<name>.py with a get(data_dir) factory function — nothing else
 needs to change.
 """
 
