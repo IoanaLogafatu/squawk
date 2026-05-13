@@ -121,11 +121,17 @@ class AircraftRoute:
     flight_number  — Not in ADS-B — enrichment plugins only.
     """
 
-    callsign:         Optional[str] = UNKNOWN   # ICAO flight number / radio callsign
-    squawk_code:      Optional[str] = UNKNOWN   # 4-digit octal transponder code
-    origin_iata:      Optional[str] = UNKNOWN   # Departure airport, e.g. "LHR"
-    destination_iata: Optional[str] = UNKNOWN   # Arrival airport, e.g. "JFK"
-    flight_number:    Optional[str] = UNKNOWN   # Commercial flight number, e.g. "BA117"
+    callsign:            Optional[str] = UNKNOWN   # ICAO flight number / radio callsign
+    squawk_code:         Optional[str] = UNKNOWN   # 4-digit octal transponder code
+    origin_iata:         Optional[str] = UNKNOWN   # Departure airport, e.g. "LHR"
+    origin_name:         Optional[str] = UNKNOWN   # e.g. "Reus Airport"
+    origin_country:      Optional[str] = UNKNOWN   # e.g. "Spain"
+    destination_iata:    Optional[str] = UNKNOWN   # Arrival airport, e.g. "JFK"
+    destination_name:    Optional[str] = UNKNOWN   # e.g. "Leeds Bradford Airport"
+    destination_country: Optional[str] = UNKNOWN   # e.g. "United Kingdom"
+    flight_number:       Optional[str] = UNKNOWN   # Commercial flight number, e.g. "BA117"
+    airline_name:        Optional[str] = UNKNOWN   # e.g. "Ryanair"
+    airline_country:     Optional[str] = UNKNOWN   # e.g. "Ireland"
 
 
 @dataclass
@@ -133,14 +139,14 @@ class Airframe:
     """
     The physical aircraft. Long-lived data tied to the airframe (or its transponder).
 
-    operator — Populated from FAA registry data only. US-registered aircraft
-               via PersonalADSB; European and other registries require separate
-               enrichment plugins.
+    operator — Registered owner of the airframe (e.g. "Malta Air"). Separate from
+               airline_name on AircraftRoute, which is who is flying it this flight.
     """
 
     registration:  Optional[str] = UNKNOWN   # Tail number, e.g. "G-EUPT"
-    aircraft_type: Optional[str] = UNKNOWN   # ICAO type code, e.g. "A320"
-    operator:      Optional[str] = UNKNOWN   # Airline or owner name
+    aircraft_type: Optional[str] = UNKNOWN   # Human-readable type, e.g. "737MAX 8 200"
+    manufacturer:  Optional[str] = UNKNOWN   # e.g. "Boeing"
+    operator:      Optional[str] = UNKNOWN   # Registered owner, e.g. "Malta Air"
 
 
 @dataclass
@@ -151,7 +157,8 @@ class AircraftRaw:
     for example: wind data, integrity fields (NIC/NAC/SIL), nav modes, RSSI.
     """
 
-    payload: dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)   # ingestor payload
+    adsbdb:  dict[str, Any] = field(default_factory=dict)   # full adsbdb response
 
 
 # ---------------------------------------------------------------------------
@@ -226,16 +233,26 @@ def aircraft_from_dict(d: dict) -> Aircraft:
             vertical_rate_fpm  = vec["vertical_rate_fpm"],
         ),
         route=AircraftRoute(
-            callsign         = rt["callsign"],
-            squawk_code      = rt["squawk_code"],
-            origin_iata      = rt["origin_iata"],
-            destination_iata = rt["destination_iata"],
-            flight_number    = rt["flight_number"],
+            callsign            = rt["callsign"],
+            squawk_code         = rt["squawk_code"],
+            origin_iata         = rt["origin_iata"],
+            origin_name         = rt.get("origin_name"),
+            origin_country      = rt.get("origin_country"),
+            destination_iata    = rt["destination_iata"],
+            destination_name    = rt.get("destination_name"),
+            destination_country = rt.get("destination_country"),
+            flight_number       = rt["flight_number"],
+            airline_name        = rt.get("airline_name"),
+            airline_country     = rt.get("airline_country"),
         ),
         airframe=Airframe(
             registration  = af["registration"],
             aircraft_type = af["aircraft_type"],
+            manufacturer  = af.get("manufacturer"),
             operator      = af["operator"],
         ),
-        raw=AircraftRaw(payload=d["raw"]["payload"]),
+        raw=AircraftRaw(
+            payload = d["raw"]["payload"],
+            adsbdb  = d["raw"].get("adsbdb", {}),
+        ),
     )

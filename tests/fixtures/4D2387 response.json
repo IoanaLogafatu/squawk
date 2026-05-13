@@ -1,0 +1,52 @@
+{
+  "response": {
+    "aircraft": {
+      "type": "737MAX 8 200",
+      "icao_type": "B38M",
+      "manufacturer": "Boeing",
+      "mode_s": "4D2387",
+      "registration": "9H-VUZ",
+      "registered_owner_country_iso_name": "MT",
+      "registered_owner_country_name": "Malta",
+      "registered_owner_operator_flag_code": "MAY",
+      "registered_owner": "Malta Air",
+      "url_photo": "https://airport-data.com/images/aircraft/001/701/001701944.jpg",
+      "url_photo_thumbnail": "https://airport-data.com/images/aircraft/thumbnails/001/701/001701944.jpg"
+    },
+    "flightroute": {
+      "callsign": "RYR54NN",
+      "callsign_icao": "RYR54NN",
+      "callsign_iata": "FR54NN",
+      "airline": {
+        "name": "Ryanair",
+        "icao": "RYR",
+        "iata": "FR",
+        "country": "Ireland",
+        "country_iso": "IE",
+        "callsign": "RYANAIR"
+      },
+      "origin": {
+        "country_iso_name": "ES",
+        "country_name": "Spain",
+        "elevation": 233,
+        "iata_code": "REU",
+        "icao_code": "LERS",
+        "latitude": 41.1474,
+        "longitude": 1.16717,
+        "municipality": "Reus",
+        "name": "Reus Airport"
+      },
+      "destination": {
+        "country_iso_name": "GB",
+        "country_name": "United Kingdom",
+        "elevation": 681,
+        "iata_code": "LBA",
+        "icao_code": "EGNM",
+        "latitude": 53.865898,
+        "longitude": -1.66057,
+        "municipality": "Leeds",
+        "name": "Leeds Bradford Airport"
+      }
+    }
+  }
+}

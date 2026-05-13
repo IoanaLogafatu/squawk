@@ -69,7 +69,7 @@ class SquawkConfig:
 def _load_squawk(raw: dict) -> SquawkSystemConfig:
     squawk = raw.get("squawk", {})
     return SquawkSystemConfig(
-        data_dir = Path(squawk.get("data_dir", "/opt/squawk")),
+        data_dir = Path(squawk.get("data_dir", "data")),
     )
 
 
