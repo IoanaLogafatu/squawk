@@ -55,8 +55,20 @@ display               = "http"
 
 
 # ---------------------------------------------------------------------------
+# Modules
+# ---------------------------------------------------------------------------
+
+[modules.registration_filter]
+url = "https://example.com/aircraft.php"
+
+
+# ---------------------------------------------------------------------------
 # Display
 # ---------------------------------------------------------------------------
+
+[display.pushover]
+token = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+user  = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 [display.http]
 port = 7700                              # HTTP port for the web display
