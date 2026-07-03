@@ -1,7 +1,7 @@
 """
 display/http/__init__.py
 
-HTTP display plugin. Serves a live web page on a configurable port that
+HTTP display module. Serves a live web page on a configurable port that
 auto-updates via Server-Sent Events as new aircraft data arrives.
 
 Configured via [display.http] in config.toml:
@@ -14,11 +14,11 @@ import threading
 from http.server import ThreadingHTTPServer
 
 from display.http.server import SharedState, make_handler
-from plugins import BasePlugin
+from modules import BaseModule
 from schemas.aircraft import Aircraft
 
 
-class HttpDisplay(BasePlugin):
+class HttpDisplay(BaseModule):
 
     def __init__(self, cfg: dict) -> None:
         port        = int(cfg.get("port", 7700))

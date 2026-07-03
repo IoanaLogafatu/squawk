@@ -12,7 +12,7 @@ CSV format (no header, semicolon-delimited, 8 fields):
 
 The CSV is downloaded automatically from the tar1090-db GitHub release if it
 is missing or older than 30 days, then cached at:
-    <data_dir>/plugins/tar1090_db/aircraft.csv
+    <data_dir>/modules/tar1090_db/aircraft.csv
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import requests
 
-from plugins import BasePlugin
+from modules import BaseModule
 from schemas.aircraft import Aircraft
 
 
@@ -32,7 +32,7 @@ _CSV_URL      = "https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/airc
 _REFRESH_DAYS = 30
 
 
-class Tar1090DbEnricher(BasePlugin):
+class Tar1090DbEnricher(BaseModule):
 
     def __init__(self, db: dict[str, tuple[str | None, str | None]]) -> None:
         # icao_hex (uppercase) → (registration, aircraft_type)
@@ -90,7 +90,7 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
 def get(cfg: dict) -> Tar1090DbEnricher:
     from config import config as squawk_config
     data_dir = Path(squawk_config.squawk.data_dir)
-    csv_path = data_dir / "plugins" / "tar1090_db" / "aircraft.csv"
+    csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
 
     if _needs_refresh(csv_path):
         try:

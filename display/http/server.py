@@ -1,11 +1,11 @@
 """
 display/http_display/server.py
 
-HTTP server internals for the http_display plugin.
+HTTP server internals for the http_display module.
 
 "intended for local/private network use; route data may be subject to upstream republishing restrictions."
 
-SharedState  — thread-safe pub/sub store; the plugin writes, SSE handlers read.
+SharedState  — thread-safe pub/sub store; the module writes, SSE handlers read.
 make_handler — returns a configured BaseHTTPRequestHandler subclass.
 render_data  — converts Aircraft (or None) to a JSON string for the browser.
 """
@@ -36,7 +36,7 @@ def _cardinal(bearing: Optional[float]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Shared state — written by the plugin thread, read by SSE handler threads
+# Shared state — written by the module thread, read by SSE handler threads
 # ---------------------------------------------------------------------------
 
 class SharedState:

@@ -1,18 +1,18 @@
 """
 display/console/__init__.py
 
-Display plugin. Logs the first aircraft in the list to stdout as
-formatted JSON. Returns the list unchanged so further plugins could
+Display module. Logs the first aircraft in the list to stdout as
+formatted JSON. Returns the list unchanged so further modules could
 be chained after it if needed.
 """
 
 from __future__ import annotations
 
-from plugins import BasePlugin
+from modules import BaseModule
 from schemas.aircraft import Aircraft
 
 
-class ConsoleDisplay(BasePlugin):
+class ConsoleDisplay(BaseModule):
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
         if not aircraft:

@@ -1,7 +1,7 @@
 """
 display/epaper/__init__.py
 
-Display plugin that renders the nearest aircraft onto a 250x122 monochrome
+Display module that renders the nearest aircraft onto a 250x122 monochrome
 image, saves it as a PNG, serves it via HTTP, and (when hardware is present)
 pushes it to a Waveshare 2.13" V4 e-paper panel.
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from plugins import BasePlugin
+from modules import BaseModule
 from display.epaper.output import EpaperOutput, start_http_server
 from display.epaper.renderer import render
 from schemas.aircraft import Aircraft
@@ -42,7 +42,7 @@ def _signature(a: Optional[Aircraft]) -> tuple:
     )
 
 
-class EpaperDisplay(BasePlugin):
+class EpaperDisplay(BaseModule):
 
     def __init__(self, cfg: dict) -> None:
         from config import config as squawk_config

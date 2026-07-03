@@ -1,7 +1,7 @@
 """
-tests/test_plugins.py
+tests/test_modules.py
 
-Tests for processor plugins.
+Tests for processor modules.
 
 Covers:
   1. ClosestFilter — selects nearest, excludes unknowns, handles empty list
@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 from unittest.mock import MagicMock
 
-from plugins.closest_filter import ClosestFilter
+from modules.closest_filter import ClosestFilter
 from display.console import ConsoleDisplay
 from display.epaper import EpaperDisplay
 from display.epaper.renderer import render, WIDTH, HEIGHT

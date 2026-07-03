@@ -47,8 +47,8 @@ class StorageConfig:
 @dataclass
 class ProcessorConfig:
     poll_interval_seconds: int         # How often the processor runs
-    plugins:               list[str]   # Plugin names, applied in order
-    display:               str | None  # Display plugin name
+    modules:               list[str]   # Module names, applied in order
+    display:               str | None  # Display module name
 
 
 @dataclass
@@ -58,8 +58,8 @@ class SquawkConfig:
     storage:   StorageConfig
     ingestors: dict[str, dict]
     processor: ProcessorConfig | None = None
-    display:   dict = field(default_factory=dict)   # Per-display config keyed by plugin name
-    plugins:   dict = field(default_factory=dict)   # Per-plugin config keyed by plugin name
+    display:   dict = field(default_factory=dict)   # Per-display config keyed by module name
+    modules:   dict = field(default_factory=dict)   # Per-module config keyed by module name
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ def _load_processor(raw: dict) -> ProcessorConfig | None:
         return None
     return ProcessorConfig(
         poll_interval_seconds = proc.get("poll_interval_seconds", 5),
-        plugins               = proc.get("plugins", []),
+        modules               = proc.get("modules", []),
         display               = proc.get("display"),
     )
 
@@ -127,7 +127,7 @@ def load_config(path: Path = CONFIG_PATH) -> SquawkConfig:
         ingestors = _load_ingestors(raw),
         processor = _load_processor(raw),
         display   = _load_display(raw),
-        plugins   = raw.get("plugins", {}),
+        modules   = raw.get("modules", {}),
     )
 
 
