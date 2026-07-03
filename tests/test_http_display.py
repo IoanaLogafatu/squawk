@@ -43,6 +43,9 @@ def _make_aircraft(
     callsign=None,
     aircraft_type=None,
     operator=None,
+    airline_name=None,
+    origin_iata=None,
+    destination_iata=None,
     distance_nm=None,
     bearing_degrees=None,
     altitude_feet=None,
@@ -52,7 +55,8 @@ def _make_aircraft(
         meta      = AircraftMeta(icao_hex=hex_id, ingestor="test", reception_type="adsb_icao"),
         location  = AircraftLocation(distance_nm=distance_nm, bearing_degrees=bearing_degrees, altitude_feet=altitude_feet),
         direction = AircraftVector(vertical_rate_fpm=vertical_rate_fpm),
-        route     = AircraftRoute(callsign=callsign),
+        route     = AircraftRoute(callsign=callsign, airline_name=airline_name,
+                                  origin_iata=origin_iata, destination_iata=destination_iata),
         airframe  = Airframe(registration=registration, aircraft_type=aircraft_type, operator=operator),
         raw       = AircraftRaw(),
     )
@@ -219,3 +223,39 @@ def test_render_data_has_timestamp():
     a = _make_aircraft()
     d = json.loads(render_data(a))
     assert "UTC" in d["timestamp"]
+
+
+def test_render_data_airline_present():
+    a = _make_aircraft(airline_name="Ryanair")
+    d = json.loads(render_data(a))
+    assert d["airline"] == "Ryanair"
+
+
+def test_render_data_airline_absent_is_null():
+    a = _make_aircraft(airline_name=None)
+    d = json.loads(render_data(a))
+    assert d["airline"] is None
+
+
+def test_render_data_route_both_iata():
+    a = _make_aircraft(origin_iata="REU", destination_iata="LBA")
+    d = json.loads(render_data(a))
+    assert d["route"] == "REU → LBA"
+
+
+def test_render_data_route_origin_only():
+    a = _make_aircraft(origin_iata="REU")
+    d = json.loads(render_data(a))
+    assert d["route"] == "REU → ?"
+
+
+def test_render_data_route_destination_only():
+    a = _make_aircraft(destination_iata="LBA")
+    d = json.loads(render_data(a))
+    assert d["route"] == "? → LBA"
+
+
+def test_render_data_route_neither_is_null():
+    a = _make_aircraft()
+    d = json.loads(render_data(a))
+    assert d["route"] is None

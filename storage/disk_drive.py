@@ -58,16 +58,23 @@ class DiskDriveStorage(BaseStorage):
         """Delete aircraft files not updated within STALE_SECONDS."""
         now = time.time()
         for path in self.aircraft_dir.glob("*.json"):
-            if now - path.stat().st_mtime > STALE_SECONDS:
-                path.unlink(missing_ok=True)
+            try:
+                if now - path.stat().st_mtime > STALE_SECONDS:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                pass  # already deleted by a concurrent expiry — harmless
 
     def list_aircraft_hex_ids(self) -> list[str]:
         """Return sorted list of hex IDs currently on disk and not stale."""
         now = time.time()
-        return sorted(
-            p.stem for p in self.aircraft_dir.glob("*.json")
-            if now - p.stat().st_mtime <= STALE_SECONDS
-        )
+        ids = []
+        for p in self.aircraft_dir.glob("*.json"):
+            try:
+                if now - p.stat().st_mtime <= STALE_SECONDS:
+                    ids.append(p.stem)
+            except OSError:
+                pass
+        return sorted(ids)
 
     def retrieve_aircraft(self, hex_id: str) -> dict | None:
         """Read and return one aircraft record by hex ID, or None if absent or stale."""
@@ -87,9 +94,9 @@ class DiskDriveStorage(BaseStorage):
         result = []
         now = time.time()
         for path in self.aircraft_dir.glob("*.json"):
-            if now - path.stat().st_mtime > STALE_SECONDS:
-                continue
             try:
+                if now - path.stat().st_mtime > STALE_SECONDS:
+                    continue
                 result.append(json.loads(path.read_text()))
             except (OSError, ValueError):
                 pass

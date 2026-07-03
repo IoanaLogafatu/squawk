@@ -124,8 +124,10 @@ def test_load_db_normalises_hex_to_uppercase(tmp_path):
 
 def test_missing_csv_returns_noop_enricher(tmp_path, monkeypatch):
     from plugins import tar1090_db
+    from config import config as squawk_config
     monkeypatch.setattr(tar1090_db, "_download", lambda path: (_ for _ in ()).throw(RuntimeError("no network")))
-    enricher = tar1090_db.get({"csv_path": str(tmp_path / "nonexistent.csv")})
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
+    enricher = tar1090_db.get({})
     aircraft = [_make_aircraft("4CA068")]
     result = enricher.process(aircraft)
     assert result[0].airframe.registration is None

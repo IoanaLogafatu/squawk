@@ -189,3 +189,36 @@ def test_list_hex_ids_excludes_stale(tmp_path):
     s.save_aircraft_array([_make("AA1111"), _make("BB2222")])
     _age(_aircraft_path(tmp_path, "BB2222"), STALE_SECONDS + 10)
     assert s.list_aircraft_hex_ids() == ["AA1111"]
+
+
+# ---------------------------------------------------------------------------
+# Race condition — file deleted between glob() and stat()
+# ---------------------------------------------------------------------------
+
+def test_retrieve_array_survives_file_deleted_after_glob(tmp_path, monkeypatch):
+    """Regression: FileNotFoundError from stat() crashed the Processor thread."""
+    s = _storage(tmp_path)
+    s.save_aircraft_array([_make("AA1111")])
+
+    original_stat = Path.stat
+    def stat_raises(self, **kw):
+        if self.parent == s.aircraft_dir and self.suffix == ".json":
+            raise FileNotFoundError(f"simulated race: {self}")
+        return original_stat(self, **kw)
+
+    monkeypatch.setattr(Path, "stat", stat_raises)
+    assert s.retrieve_aircraft_array() == []
+
+
+def test_list_hex_ids_survives_file_deleted_after_glob(tmp_path, monkeypatch):
+    s = _storage(tmp_path)
+    s.save_aircraft_array([_make("AA1111")])
+
+    original_stat = Path.stat
+    def stat_raises(self, **kw):
+        if self.parent == s.aircraft_dir and self.suffix == ".json":
+            raise FileNotFoundError(f"simulated race: {self}")
+        return original_stat(self, **kw)
+
+    monkeypatch.setattr(Path, "stat", stat_raises)
+    assert s.list_aircraft_hex_ids() == []

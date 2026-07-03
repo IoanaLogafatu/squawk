@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "icao_hex": "4D2387",
+    "ingestor": "personal_adsb",
+    "observed_at": "2026-05-13T17:02:11.782000+00:00",
+    "reception_type": "mlat"
+  },
+  "location": {
+    "latitude": 51.147083,
+    "longitude": -0.735397,
+    "altitude_feet": 38000,
+    "distance_nm": 91.36,
+    "bearing_degrees": 180.1,
+    "seen_seconds": 0.5
+  },
+  "direction": {
+    "ground_speed_knots": 432.4,
+    "track_degrees": 357.48,
+    "vertical_rate_fpm": 0
+  },
+  "route": {
+    "callsign": "RYR54NN",
+    "squawk_code": "5363",
+    "origin_iata": null,
+    "destination_iata": null,
+    "flight_number": null
+  },
+  "airframe": {
+    "registration": null,
+    "aircraft_type": null,
+    "operator": null
+  },
+  "raw": {
+    "payload": {
+      "hex": "4d2387",
+      "type": "mlat",
+      "flight": "RYR54NN ",
+      "alt_baro": 38000,
+      "alt_geom": 37425,
+      "gs": 432.4,
+      "track": 357.48,
+      "baro_rate": 0,
+      "squawk": "5363",
+      "category": "A3",
+      "nav_qnh": 1013.6,
+      "nav_altitude_mcp": 38016,
+      "nav_heading": 353.67,
+      "lat": 51.147083,
+      "lon": -0.735397,
+      "nic": 0,
+      "rc": 0,
+      "seen_pos": 2.748,
+      "r_dst": 91.36,
+      "r_dir": 180.1,
+      "version": 2,
+      "nic_baro": 1,
+      "nac_v": 0,
+      "alert": 0,
+      "spi": 0,
+      "mlat": [
+        "gs",
+        "track",
+        "baro_rate",
+        "lat",
+        "lon",
+        "nic",
+        "rc",
+        "nac_v"
+      ],
+      "tisb": [],
+      "messages": 229,
+      "seen": 0.5,
+      "rssi": -24.6
+    }
+  }
+}

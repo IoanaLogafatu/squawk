@@ -3,6 +3,8 @@ display/http_display/server.py
 
 HTTP server internals for the http_display plugin.
 
+"intended for local/private network use; route data may be subject to upstream republishing restrictions."
+
 SharedState  — thread-safe pub/sub store; the plugin writes, SSE handlers read.
 make_handler — returns a configured BaseHTTPRequestHandler subclass.
 render_data  — converts Aircraft (or None) to a JSON string for the browser.
@@ -144,9 +146,22 @@ def render_data(a: Optional[Aircraft]) -> str:
     else:
         distance = f"{dist:.1f} nm"
 
+    origin = a.route.origin_iata
+    dest   = a.route.destination_iata
+    if origin and dest:
+        route = f"{origin} → {dest}"
+    elif origin:
+        route = f"{origin} → ?"
+    elif dest:
+        route = f"? → {dest}"
+    else:
+        route = None
+
     return json.dumps({
         "ident":         a.airframe.registration or a.route.callsign or a.meta.icao_hex,
         "aircraft_type": a.airframe.aircraft_type or "—",
+        "airline":       a.route.airline_name or None,
+        "route":         route,
         "operator":      a.airframe.operator or None,
         "distance":      distance,
         "altitude":      altitude,
@@ -212,7 +227,9 @@ function render(d) {
   panel.innerHTML =
     '<div class="ident">' + esc(d.ident) + ' <span class="vrate">' + esc(d.vrate) + '</span></div>' +
     row('Type',     d.aircraft_type) +
-    (d.operator ? row('Operator', d.operator) : '') +
+    (d.airline   ? row('Airline',  d.airline)   : '') +
+    (d.route     ? row('Route',    d.route)     : '') +
+    (d.operator  ? row('Operator', d.operator)  : '') +
     row('Distance', d.distance) +
     row('Altitude', d.altitude) +
     '<div class="ts">' + esc(d.timestamp) + '</div>';
