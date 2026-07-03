@@ -1,4 +1,4 @@
-"""plugins/adsbdb.py
+"""modules/adsbdb.py
 
 Enriches Aircraft records from adsbdb.com.
 
@@ -13,7 +13,7 @@ Data sources (please honour these credits):
 
   API hosting      — adsbdb.com            https://www.adsbdb.com/
 
-This plugin treats the local cache as an ephemeral working copy, not a
+This module treats the local cache as an ephemeral working copy, not a
 republished database. It respects adsbdb's published rate limits in
 code. If you fork Squawk for anything beyond personal hobby use,
 contact the upstream maintainers before scaling traffic or persisting
@@ -38,7 +38,7 @@ Skip when:
   usually a private individual for callsign-less aircraft.
 
 Cache (cache-first, then API):
-  data/plugins/adsbdb/<CALLSIGN>.json    TTL 1 hour
+  data/modules/adsbdb/<CALLSIGN>.json    TTL 1 hour
 
   Stores the full adsbdb response. A cache hit means zero API calls.
   Stale files trigger a re-fetch; on fetch failure, the stale file is
@@ -64,7 +64,7 @@ from typing import Optional
 
 import requests
 
-from plugins import BasePlugin
+from modules import BaseModule
 from schemas.aircraft import Aircraft
 
 
@@ -76,7 +76,7 @@ _TIMEOUT_SECONDS   = 5
 _HEADERS           = {"User-Agent": "Squawk/1.1 (+https://github.com/IoanaLogafatu/squawk)"}
 
 
-class AdsbdbEnricher(BasePlugin):
+class AdsbdbEnricher(BaseModule):
 
     def __init__(self, cache_dir: Path) -> None:
         self._cache_dir = cache_dir
@@ -208,6 +208,6 @@ class AdsbdbEnricher(BasePlugin):
 def get(cfg: dict) -> AdsbdbEnricher:
     from config import config as squawk_config
     data_dir  = Path(squawk_config.squawk.data_dir)
-    cache_dir = data_dir / "plugins" / "adsbdb"
+    cache_dir = data_dir / "modules" / "adsbdb"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return AdsbdbEnricher(cache_dir=cache_dir)

@@ -1,10 +1,10 @@
 """
 tests/test_http_display.py
 
-Tests for the HTTP display plugin.
+Tests for the HTTP display module.
 
 Covers:
-  1. Plugin contract — process() returns list unchanged
+  1. Module contract — process() returns list unchanged
   2. HTTP server — page served, 404 for unknown paths
   3. render_data — JSON output for each display field
 """
@@ -68,7 +68,7 @@ def _get(url: str) -> tuple[int, str]:
 
 
 # ===========================================================================
-# 1. Plugin contract
+# 1. Module contract
 # ===========================================================================
 
 def test_http_display_returns_aircraft_unchanged():

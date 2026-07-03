@@ -1,7 +1,7 @@
 """
-tests/test_plugin_adsbdb.py
+tests/test_module_adsbdb.py
 
-Tests for the adsbdb enrichment plugin.
+Tests for the adsbdb enrichment module.
 
 No real network calls — requests.get is monkeypatched throughout.
 
@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugins.adsbdb import AdsbdbEnricher
+from modules.adsbdb import AdsbdbEnricher
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
@@ -62,19 +62,19 @@ def _mock_200(monkeypatch) -> None:
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = _FULL_API_RESPONSE
-    monkeypatch.setattr("plugins.adsbdb.requests.get", lambda *a, **kw: resp)
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: resp)
 
 
 def _mock_404(monkeypatch) -> None:
     resp = MagicMock()
     resp.status_code = 404
-    monkeypatch.setattr("plugins.adsbdb.requests.get", lambda *a, **kw: resp)
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: resp)
 
 
 def _mock_error(monkeypatch) -> None:
     def _raise(*a, **kw):
         raise ConnectionError("no network")
-    monkeypatch.setattr("plugins.adsbdb.requests.get", _raise)
+    monkeypatch.setattr("modules.adsbdb.requests.get", _raise)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ def _mock_error(monkeypatch) -> None:
 
 def test_skip_when_callsign_unknown(tmp_path, monkeypatch):
     called = []
-    monkeypatch.setattr("plugins.adsbdb.requests.get", lambda *a, **kw: called.append(1))
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: called.append(1))
     enricher = AdsbdbEnricher(cache_dir=tmp_path)
     a = _make_aircraft(callsign=None)
     enricher.process([a])
@@ -101,7 +101,7 @@ def test_cache_hit_fresh_no_http_call(tmp_path, monkeypatch):
         json.dumps(_API_INNER), encoding="utf-8"
     )
     called = []
-    monkeypatch.setattr("plugins.adsbdb.requests.get", lambda *a, **kw: called.append(1))
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: called.append(1))
     enricher = AdsbdbEnricher(cache_dir=tmp_path)
     enricher.process([_make_aircraft(callsign="RYR54NN")])
     assert not called
@@ -153,7 +153,7 @@ def test_cache_stale_triggers_fetch(tmp_path, monkeypatch):
         resp.json.return_value = _FULL_API_RESPONSE
         return resp
 
-    monkeypatch.setattr("plugins.adsbdb.requests.get", mock_get)
+    monkeypatch.setattr("modules.adsbdb.requests.get", mock_get)
     enricher = AdsbdbEnricher(cache_dir=tmp_path)
     enricher.process([_make_aircraft(callsign="RYR54NN")])
     assert len(fetch_calls) == 1
@@ -209,7 +209,7 @@ def test_fresh_not_found_marker_prevents_http_call(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     called = []
-    monkeypatch.setattr("plugins.adsbdb.requests.get", lambda *a, **kw: called.append(1))
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: called.append(1))
     enricher = AdsbdbEnricher(cache_dir=tmp_path)
     enricher.process([_make_aircraft(callsign="RYR54NN")])
     assert not called
@@ -235,7 +235,7 @@ def test_unknown_only_does_not_overwrite_preset_operator(tmp_path, monkeypatch):
 
 def test_rate_limit_skips_api_call(tmp_path, monkeypatch):
     called = []
-    monkeypatch.setattr("plugins.adsbdb.requests.get", lambda *a, **kw: called.append(1))
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: called.append(1))
     enricher = AdsbdbEnricher(cache_dir=tmp_path)
 
     now = time.monotonic()

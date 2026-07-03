@@ -1,7 +1,7 @@
 """
 tests/test_tar1090_db.py
 
-Tests for the tar1090_db enricher plugin.
+Tests for the tar1090_db enricher module.
 
 Covers:
   1. Fills registration when UNKNOWN
@@ -18,7 +18,7 @@ from __future__ import annotations
 import csv
 import pytest
 
-from plugins.tar1090_db import Tar1090DbEnricher, _load_db
+from modules.tar1090_db import Tar1090DbEnricher, _load_db
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
@@ -123,7 +123,7 @@ def test_load_db_normalises_hex_to_uppercase(tmp_path):
 
 
 def test_missing_csv_returns_noop_enricher(tmp_path, monkeypatch):
-    from plugins import tar1090_db
+    from modules import tar1090_db
     from config import config as squawk_config
     monkeypatch.setattr(tar1090_db, "_download", lambda path: (_ for _ in ()).throw(RuntimeError("no network")))
     monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))

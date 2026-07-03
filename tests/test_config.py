@@ -74,16 +74,16 @@ def test_config_receiver_names_are_non_empty():
 
 
 # ===========================================================================
-# 4. Processor plugins and display
+# 4. Processor modules and display
 # ===========================================================================
 
-def test_config_processor_plugins_is_list():
-    assert isinstance(config.processor.plugins, list)
+def test_config_processor_modules_is_list():
+    assert isinstance(config.processor.modules, list)
 
 
-def test_config_processor_plugins_entries_are_strings():
-    for name in config.processor.plugins:
-        assert isinstance(name, str) and name, f"Invalid plugin entry: {name!r}"
+def test_config_processor_modules_entries_are_strings():
+    for name in config.processor.modules:
+        assert isinstance(name, str) and name, f"Invalid module entry: {name!r}"
 
 
 def test_config_processor_display_is_string_or_none():

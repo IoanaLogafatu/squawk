@@ -4,7 +4,7 @@ tests/test_processor.py
 Tests for the processor pipeline mechanics.
 
 Covers:
-  1. Plugins execute in declared order and each receives the previous output
+  1. Modules execute in declared order and each receives the previous output
   2. Empty aircraft list passes through without error
   3. Poll-interval sleep calculation
   4. Storage backend is correctly instantiated from config
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from plugins import BasePlugin
+from modules import BaseModule
 from storage import get_storage
 from storage.disk_drive import DiskDriveStorage
 from schemas.aircraft import (
@@ -38,7 +38,7 @@ def _make_aircraft(hex_id: str) -> Aircraft:
     )
 
 
-class _OrderPlugin(BasePlugin):
+class _OrderModule(BaseModule):
     """Records its label in a shared log when called."""
     def __init__(self, label: str, log: list) -> None:
         self._label = label
@@ -55,33 +55,33 @@ class _OrderPlugin(BasePlugin):
 
 def test_processor_runs_pipeline_in_order():
     log     = []
-    plugins = [_OrderPlugin("first", log), _OrderPlugin("second", log), _OrderPlugin("third", log)]
+    modules = [_OrderModule("first", log), _OrderModule("second", log), _OrderModule("third", log)]
     aircraft = [_make_aircraft("AA1111")]
 
-    for plugin in plugins:
-        aircraft = plugin.process(aircraft)
+    for module in modules:
+        aircraft = module.process(aircraft)
 
     assert log == ["first", "second", "third"]
 
 
-def test_processor_pipeline_passes_output_to_next_plugin():
-    # A plugin that removes aircraft; next plugin should see the reduced list.
-    class DropAll(BasePlugin):
+def test_processor_pipeline_passes_output_to_next_module():
+    # A module that removes aircraft; next module should see the reduced list.
+    class DropAll(BaseModule):
         def process(self, aircraft):
             return []
 
-    class RecordCount(BasePlugin):
+    class RecordCount(BaseModule):
         received = -1
         def process(self, aircraft):
             RecordCount.received = len(aircraft)
             return aircraft
 
     recorder = RecordCount()
-    plugins  = [DropAll(), recorder]
+    modules  = [DropAll(), recorder]
     aircraft = [_make_aircraft("AA1111"), _make_aircraft("BB2222")]
 
-    for plugin in plugins:
-        aircraft = plugin.process(aircraft)
+    for module in modules:
+        aircraft = module.process(aircraft)
 
     assert RecordCount.received == 0
 
@@ -92,10 +92,10 @@ def test_processor_pipeline_passes_output_to_next_plugin():
 
 def test_processor_handles_empty_list():
     log    = []
-    plugin = _OrderPlugin("called", log)
-    result = plugin.process([])
+    module = _OrderModule("called", log)
+    result = module.process([])
     assert result == []
-    assert log == ["called"]  # plugin still runs on an empty list
+    assert log == ["called"]  # module still runs on an empty list
 
 
 # ===========================================================================

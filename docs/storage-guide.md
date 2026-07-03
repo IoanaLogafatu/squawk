@@ -3,7 +3,7 @@
 A **storage backend** is the persistence layer that sits between ingestors and the processor. Ingestors write aircraft records to it; the processor reads from it. Backends are interchangeable: switching from `disk_drive` to `sqlite` is a single config change with no code changes elsewhere.
 
 ```
-ingestor → storage ← processor → plugins → display
+ingestor → storage ← processor → modules → display
 ```
 
 ## Responsibilities

@@ -50,7 +50,7 @@ backend = "disk_drive"
 
 [processor]
 poll_interval_seconds = 5
-plugins               = ["closest_filter"]
+modules               = ["closest_filter"]
 display               = "http"
 
 

@@ -1,7 +1,7 @@
 """
 display/epaper_display/output.py
 
-Combined output for the epaper_display plugin:
+Combined output for the epaper_display module:
   - saves each rendered frame as a PNG to data/display/epaper_display/
   - serves the PNG via a simple HTTP page (auto-refreshing)
   - pushes to Waveshare 2.13" V4 hardware when the driver is available

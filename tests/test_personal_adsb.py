@@ -121,14 +121,14 @@ def test_merge_winner_by_observed_at(merged_by_hex, hex_id, winning_seen):
 # ===========================================================================
 
 def test_us_operator_is_unknown(snap1):
-    # ownOp is not mapped — operator is left blank for a plugin to fill
+    # ownOp is not mapped — operator is left blank for a module to fill
     raw = _find_raw(snap1, "a8ac35")
     ac = convert_aircraft(raw)
     assert ac.airframe.operator is None
 
 
 def test_us_ownop_preserved_in_raw(snap2):
-    # ownOp passes through to raw.payload so a plugin can pick it up
+    # ownOp passes through to raw.payload so a module can pick it up
     raw = _find_raw(snap2, "abc1da")
     ac = convert_aircraft(raw)
     assert ac.raw.payload.get("ownOp") == "FEDERAL EXPRESS CORP"

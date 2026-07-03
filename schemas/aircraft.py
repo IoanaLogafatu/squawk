@@ -4,7 +4,7 @@ schemas/aircraft.py
 Canonical data schema for the Squawk aircraft ingestor.
 
 All fields are always present. Fields the source cannot populate are set to
-UNKNOWN (None). Downstream plugins use None as a signal that they should
+UNKNOWN (None). Downstream modules use None as a signal that they should
 attempt to fill the field.
 
 Sections:
@@ -117,8 +117,8 @@ class AircraftRoute:
 
     squawk_code    — 4-digit octal code assigned by ATC per airspace entry.
     callsign       — ICAO flight number / radio callsign.
-    origin/dest    — Not in ADS-B — enrichment plugins only.
-    flight_number  — Not in ADS-B — enrichment plugins only.
+    origin/dest    — Not in ADS-B — enrichment modules only.
+    flight_number  — Not in ADS-B — enrichment modules only.
     """
 
     callsign:            Optional[str] = UNKNOWN   # ICAO flight number / radio callsign
@@ -153,7 +153,7 @@ class Airframe:
 class AircraftRaw:
     """
     Full unmodified payload from the source.
-    Lets consumers or plugins access fields not mapped into the Squawk schema —
+    Lets consumers or modules access fields not mapped into the Squawk schema —
     for example: wind data, integrity fields (NIC/NAC/SIL), nav modes, RSSI.
     """
 
