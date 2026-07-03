@@ -58,6 +58,10 @@ display               = "http"
 # Display
 # ---------------------------------------------------------------------------
 
+[display.pushover]
+token = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+user  = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+
 [display.http]
 port = 7700                              # HTTP port for the web display
 
