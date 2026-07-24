@@ -84,75 +84,117 @@ class AdsbdbEnricher(BaseModule):
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
         for a in aircraft:
-            callsign = (a.route.callsign or "").strip().upper()
-            if not callsign:
+            hex_id = (a.meta.icao_hex or "").strip().upper()
+            if not hex_id:
                 continue
-            data = self._get(a.meta.icao_hex.upper(), callsign)
-            if not data or data.get("not_found"):
+            callsign = (a.route.callsign or "").strip().upper() or None
+            data = self._get(hex_id, callsign)
+            if not data or not isinstance(data, dict) or data.get("not_found"):
                 continue
             self._apply(a, data)
         return aircraft
 
-    def _get(self, hex_id: str, callsign: str) -> Optional[dict]:
-        cache_path = self._cache_dir / f"{callsign}.json"
+    def _get(self, hex_id: str, callsign: str | None) -> Optional[dict]:
+        cache_path = self._cache_dir / f"{hex_id}.json"
+        legacy_cache_path = (self._cache_dir / f"{callsign}.json") if callsign else None
+
+        active_cache_path = None
+        if cache_path.exists():
+            active_cache_path = cache_path
+        elif legacy_cache_path and legacy_cache_path.exists():
+            active_cache_path = legacy_cache_path
+
         cached_data: Optional[dict] = None
         cache_fresh = False
 
-        if cache_path.exists():
+        if active_cache_path is not None:
             try:
-                cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
-                age = time.time() - cache_path.stat().st_mtime
+                cached_data = json.loads(active_cache_path.read_text(encoding="utf-8"))
+                age = time.time() - active_cache_path.stat().st_mtime
                 cache_fresh = age <= _CACHE_TTL_SECONDS
             except Exception:
                 pass
 
-        if cache_fresh and cached_data is not None:
-            # print(f"  adsbdb: cache hit for {callsign}")
+        if cache_fresh and cached_data is not None and isinstance(cached_data, dict):
+            if cached_data.get("not_found"):
+                return cached_data
+            # If callsign is provided but cached data has no flightroute, try fetching if rate limit permits
+            if callsign and "flightroute" not in cached_data and self._under_rate_limit():
+                fetched = self._fetch(hex_id, callsign)
+                if fetched is not None and isinstance(fetched, dict) and "aircraft" in fetched:
+                    self._save_cache(hex_id, callsign, fetched)
+                    return fetched
             return cached_data
 
         if not self._under_rate_limit():
-            print(f"  adsbdb: rate limit reached — skipping {callsign}")
-            return None
+            print(f"  adsbdb: rate limit reached — skipping {hex_id}")
+            return cached_data if (cached_data is not None and isinstance(cached_data, dict)) else None
 
-        fetched = self._fetch(hex_id, callsign)
-        if fetched is not None:
-            tmp = cache_path.with_name(cache_path.name + ".tmp")
-            tmp.write_text(json.dumps(fetched, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, cache_path)
+        # 1. Try with callsign if available
+        if callsign:
+            fetched = self._fetch(hex_id, callsign)
+            if fetched is not None and isinstance(fetched, dict) and ("aircraft" in fetched or "not_found" in fetched):
+                self._save_cache(hex_id, callsign, fetched)
+                return fetched
+
+        # 2. Fallback or initial fetch with hex only
+        fetched = self._fetch(hex_id, None)
+        if fetched is not None and isinstance(fetched, dict):
+            self._save_cache(hex_id, callsign, fetched)
             return fetched
 
-        if cached_data is not None:
-            print(f"  adsbdb: fetch failed — using stale cache for {callsign}")
-        return cached_data
+        if cached_data is not None and isinstance(cached_data, dict):
+            print(f"  adsbdb: fetch failed — using stale cache for {hex_id}")
+            return cached_data
 
-    def _fetch(self, hex_id: str, callsign: str) -> Optional[dict]:
-        url = f"{_API_BASE}/{hex_id}?callsign={callsign}"
+        return None
+
+    def _save_cache(self, hex_id: str, callsign: str | None, data: dict) -> None:
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        paths = [self._cache_dir / f"{hex_id}.json"]
+        if callsign:
+            paths.append(self._cache_dir / f"{callsign}.json")
+        for path in paths:
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, path)
+
+    def _fetch(self, hex_id: str, callsign: str | None = None) -> Optional[dict]:
+        url = f"{_API_BASE}/{hex_id}?callsign={callsign}" if callsign else f"{_API_BASE}/{hex_id}"
+        lbl = f"{hex_id}/{callsign}" if callsign else hex_id
         try:
             resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT_SECONDS)
         except Exception as exc:
             self._record_call()
-            print(f"  adsbdb: error fetching {callsign}: {exc}")
+            print(f"  adsbdb: error fetching {lbl}: {exc}")
             return None
 
         self._record_call()
+
+        if not resp or not hasattr(resp, "status_code"):
+            return None
 
         if resp.status_code == 200:
             try:
                 data = resp.json()
             except Exception as exc:
-                print(f"  adsbdb: malformed JSON for {callsign}: {exc}")
+                print(f"  adsbdb: malformed JSON for {lbl}: {exc}")
                 return None
-            print(f"  adsbdb: 200 for {callsign}")
-            return data.get("response", data)
+            res = data.get("response", data) if isinstance(data, dict) else data
+            if isinstance(res, dict) and "aircraft" in res:
+                print(f"  adsbdb: 200 for {lbl}")
+                return res
+            print(f"  adsbdb: 200 for {lbl} but response not aircraft dict: {res}")
+            return None
 
         if resp.status_code == 404:
-            print(f"  adsbdb: 404 for {callsign}")
+            print(f"  adsbdb: 404 for {lbl}")
             return {
                 "not_found": True,
                 "checked_at": datetime.now(timezone.utc).isoformat(),
             }
 
-        print(f"  adsbdb: unexpected status {resp.status_code} for {callsign}")
+        print(f"  adsbdb: unexpected status {resp.status_code} for {lbl}")
         return None
 
     def _under_rate_limit(self) -> bool:
@@ -177,7 +219,7 @@ class AdsbdbEnricher(BaseModule):
             aircraft.airframe.manufacturer = ac["manufacturer"]
         if aircraft.airframe.registration is None and ac.get("registration"):
             aircraft.airframe.registration = ac["registration"]
-        if aircraft.airframe.aircraft_type is None and ac.get("type"):
+        if ac.get("type"):
             aircraft.airframe.aircraft_type = ac["type"]
         if aircraft.airframe.operator is None and ac.get("registered_owner"):
             aircraft.airframe.operator = ac["registered_owner"]

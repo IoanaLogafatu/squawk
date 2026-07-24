@@ -1,16 +1,14 @@
 """
 modules/registration_filter.py
 
-Processor module that fetches a target registration from a URL every 15 minutes,
-resolves it to a hex code via the tar1090 database, and filters aircraft.
+Processor module that filters aircraft matching a configured list of target registrations,
+resolving them to hex codes via the tar1090 database (aircraft.csv).
 """
 
 from __future__ import annotations
 
 import csv
-import time
 from pathlib import Path
-import requests
 
 from modules import BaseModule
 from schemas.aircraft import Aircraft
@@ -18,14 +16,16 @@ from schemas.aircraft import Aircraft
 
 class RegistrationFilter(BaseModule):
 
-    def __init__(self, url: str, data_dir: Path) -> None:
-        self._url = url
+    def __init__(self, target_registrations: list[str], data_dir: Path) -> None:
+        if isinstance(target_registrations, str):
+            target_registrations = [target_registrations]
+        self._target_registrations = set(r.strip().upper() for r in target_registrations if r and r.strip())
         self._data_dir = data_dir
-        self._reg_file = data_dir / "modules" / "registration_filter" / "registration.txt"
-        self._last_check_file = data_dir / "modules" / "registration_filter" / "last_check.txt"
         self._csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
         self._reg_to_hex: dict[str, str] = {}
-        self._last_fetched_reg: str | None = None
+        self._hex_to_reg: dict[str, str] = {}
+        self._hex_to_type: dict[str, str] = {}
+        self._target_hexes: set[str] = set()
 
         # Resolve tar1090_db download/existence
         if not self._csv_path.exists():
@@ -35,10 +35,9 @@ class RegistrationFilter(BaseModule):
             except Exception as e:
                 print(f"registration_filter: failed to download tar1090_db database: {e}")
 
-        self._load_reg_to_hex()
-        self._load_cached_reg()
+        self._load_aircraft_db()
 
-    def _load_reg_to_hex(self) -> None:
+    def _load_aircraft_db(self) -> None:
         if not self._csv_path.exists():
             return
         try:
@@ -49,80 +48,41 @@ class RegistrationFilter(BaseModule):
                         continue
                     hex_code = row[0].strip().upper()
                     reg = row[1].strip().upper()
+                    desc = (row[4].strip() if len(row) > 4 else "") or (row[2].strip() if len(row) > 2 else "")
                     if reg and hex_code:
                         self._reg_to_hex[reg] = hex_code
+                        self._hex_to_reg[hex_code] = reg
+                        if reg in self._target_registrations:
+                            self._target_hexes.add(hex_code)
+                    if hex_code and desc:
+                        self._hex_to_type[hex_code] = desc
         except Exception as e:
             print(f"registration_filter: failed to load aircraft database: {e}")
 
-    def _load_cached_reg(self) -> None:
-        if not self._reg_file.exists():
-            return
-        try:
-            content = self._reg_file.read_text(encoding="utf-8").strip()
-            if content:
-                self._last_fetched_reg = content.upper()
-        except Exception as e:
-            print(f"registration_filter: failed to read cached registration: {e}")
-
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        now = time.time()
-        if self._should_fetch(now):
-            self._fetch_registration(now)
-
-        if not self._last_fetched_reg:
+        if not self._target_registrations:
             return []
-
-        target_reg = self._last_fetched_reg
-        target_hex = self._reg_to_hex.get(target_reg)
 
         filtered = []
         for a in aircraft:
             hex_code = (a.meta.icao_hex or "").strip().upper()
             reg = (a.airframe.registration or "").strip().upper()
 
-            match_hex = (target_hex is not None and hex_code == target_hex)
-            match_reg = (reg == target_reg)
+            match_hex = hex_code in self._target_hexes
+            match_reg = reg in self._target_registrations
 
             if match_hex or match_reg:
+                if not a.airframe.registration:
+                    a.airframe.registration = self._hex_to_reg.get(hex_code) or (reg if reg in self._target_registrations else list(self._target_registrations)[0])
+                if not a.airframe.aircraft_type and hex_code in self._hex_to_type:
+                    a.airframe.aircraft_type = self._hex_to_type[hex_code]
                 filtered.append(a)
 
         return filtered
 
-    def _should_fetch(self, now: float) -> bool:
-        if not self._last_check_file.exists():
-            return True
-        try:
-            content = self._last_check_file.read_text(encoding="utf-8").strip()
-            if not content:
-                return True
-            last_check = float(content)
-            return (now - last_check) >= 900.0
-        except Exception:
-            return True
-
-    def _fetch_registration(self, now: float) -> None:
-        try:
-            resp = requests.get(self._url, timeout=10)
-            resp.raise_for_status()
-            reg = resp.text.strip().upper()
-            if reg:
-                self._last_fetched_reg = reg
-                self._write_cached_reg(reg, now)
-                print(f"registration_filter: updated target registration to {reg}")
-        except Exception as e:
-            print(f"registration_filter: failed to fetch registration from URL: {e}")
-
-    def _write_cached_reg(self, reg: str, now: float) -> None:
-        try:
-            self._reg_file.parent.mkdir(parents=True, exist_ok=True)
-            self._reg_file.write_text(reg, encoding="utf-8")
-            self._last_check_file.write_text(str(now), encoding="utf-8")
-        except Exception as e:
-            print(f"registration_filter: failed to save registration cache: {e}")
-
 
 def get(cfg: dict) -> RegistrationFilter:
     from config import config as squawk_config
-    url = cfg.get("url", "https://www.wapentake.uk/aircraft.php")
+    target_registrations = cfg.get("registrations", [])
     data_dir = Path(squawk_config.squawk.data_dir)
-    return RegistrationFilter(url=url, data_dir=data_dir)
+    return RegistrationFilter(target_registrations=target_registrations, data_dir=data_dir)

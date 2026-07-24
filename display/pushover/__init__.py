@@ -34,14 +34,18 @@ class PushoverDisplay(BaseModule):
             print("Pushover display credentials not configured. Skipping notification.")
             return aircraft
 
-        # Format message with registration, type, from, and to details
+        # Format message with airline (if available), registration, type, from, and to details
         a = aircraft[0]
+        airline = (a.route.airline_name or a.airframe.operator or "").strip()
         reg = a.airframe.registration or a.route.callsign or a.meta.icao_hex or "???"
         typ = a.airframe.aircraft_type or "???"
         origin = a.route.origin_iata or "???"
         dest = a.route.destination_iata or "???"
 
-        message = f"{reg} {typ} {origin} {dest}"
+        if airline:
+            message = f"{airline} {reg} {typ} {origin} {dest}"
+        else:
+            message = f"{reg} {typ} {origin} {dest}"
 
         # Rate limiting: 15 minutes (900 seconds)
         now = time.time()

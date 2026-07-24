@@ -59,7 +59,13 @@ display               = "http"
 # ---------------------------------------------------------------------------
 
 [modules.registration_filter]
-url = "https://example.com/aircraft.php"
+registrations = [
+    "G-RUKG",
+    "G-RUKC",
+    "G-UJEA",
+    "G-LMTE",
+    "G-EZOK",
+]
 
 
 # ---------------------------------------------------------------------------

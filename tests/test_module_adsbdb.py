@@ -78,18 +78,41 @@ def _mock_error(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. Skip when callsign is UNKNOWN
+# 1. Enrich by hex when callsign is UNKNOWN
 # ---------------------------------------------------------------------------
 
-def test_skip_when_callsign_unknown(tmp_path, monkeypatch):
-    called = []
-    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: called.append(1))
+def test_enrich_when_callsign_unknown_fetches_by_hex(tmp_path, monkeypatch):
+    _mock_200(monkeypatch)
     enricher = AdsbdbEnricher(cache_dir=tmp_path)
     a = _make_aircraft(callsign=None)
     enricher.process([a])
-    assert not called
-    assert a.airframe.manufacturer is None
-    assert list(tmp_path.iterdir()) == []
+    assert a.airframe.manufacturer == "Boeing"
+    assert a.airframe.registration == "9H-VUZ"
+    assert (tmp_path / "4D2387.json").exists()
+
+
+def test_fallback_to_hex_when_callsign_invalid(tmp_path, monkeypatch):
+    calls = []
+    def mock_get(url, **kw):
+        calls.append(url)
+        resp = MagicMock()
+        resp.status_code = 200
+        if "callsign=" in url:
+            resp.json.return_value = {"response": "invalid callsign: UNKNOWN123"}
+        else:
+            resp.json.return_value = _FULL_API_RESPONSE
+        return resp
+
+    monkeypatch.setattr("modules.adsbdb.requests.get", mock_get)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    a = _make_aircraft(callsign="UNKNOWN123")
+    enricher.process([a])
+
+    assert len(calls) == 2
+    assert "callsign=UNKNOWN123" in calls[0]
+    assert "callsign=" not in calls[1]
+    assert a.airframe.registration == "9H-VUZ"
+    assert a.airframe.manufacturer == "Boeing"
 
 
 # ---------------------------------------------------------------------------

@@ -46,93 +46,40 @@ def setup_tar1090_db(tmp_path):
 
 def test_registration_filter_initialization(setup_tar1090_db):
     tmp_path = setup_tar1090_db
-    rf = RegistrationFilter("http://dummy-url", tmp_path)
+    rf = RegistrationFilter(["G-BOAC", "G-TEST"], tmp_path)
     assert rf._reg_to_hex.get("G-BOAC") == "400A0A"
     assert rf._reg_to_hex.get("G-TEST") == "400123"
+    assert "400A0A" in rf._target_hexes
+    assert "400123" in rf._target_hexes
 
 
-def test_registration_filter_fetches_and_filters(setup_tar1090_db):
+def test_registration_filter_array_matching(setup_tar1090_db):
     tmp_path = setup_tar1090_db
-    rf = RegistrationFilter("http://dummy-url", tmp_path)
+    rf = RegistrationFilter(["G-BOAC", "G-TEST"], tmp_path)
 
     # Prepare aircraft lists
-    a_conc_hex = _make_aircraft("400A0A", registration=None)  # Match by hex code mapping
-    a_conc_reg = _make_aircraft("OTHERHEX", registration="G-BOAC")  # Match by registration string directly
-    a_test     = _make_aircraft("400123", registration="G-TEST")  # No match
-    aircraft = [a_conc_hex, a_conc_reg, a_test]
+    a_boac_hex = _make_aircraft("400A0A", registration=None)         # Match G-BOAC by hex
+    a_boac_reg = _make_aircraft("OTHERHEX", registration="G-BOAC")    # Match G-BOAC by reg string
+    a_test_hex = _make_aircraft("400123", registration=None)         # Match G-TEST by hex
+    a_nomatch  = _make_aircraft("999999", registration="G-NOMATCH")   # No match
 
-    with patch("requests.get") as mock_get:
-        mock_resp = MagicMock()
-        mock_resp.text = "G-BOAC\n"
-        mock_resp.status_code = 200
-        mock_get.return_value = mock_resp
+    aircraft = [a_boac_hex, a_boac_reg, a_test_hex, a_nomatch]
+    result = rf.process(aircraft)
 
-        # Process cycle
-        result = rf.process(aircraft)
+    assert len(result) == 3
+    assert a_boac_hex in result
+    assert a_boac_reg in result
+    assert a_test_hex in result
+    assert a_nomatch not in result
 
-        mock_get.assert_called_once_with("http://dummy-url", timeout=10)
-        assert len(result) == 2
-        assert a_conc_hex in result
-        assert a_conc_reg in result
-        assert a_test not in result
-
-        # Check caching
-        reg_file = tmp_path / "modules" / "registration_filter" / "registration.txt"
-        assert reg_file.exists()
-        assert reg_file.read_text(encoding="utf-8") == "G-BOAC"
+    assert a_boac_hex.airframe.registration == "G-BOAC"
+    assert a_boac_hex.airframe.aircraft_type == "Concorde"
+    assert a_test_hex.airframe.registration == "G-TEST"
+    assert a_test_hex.airframe.aircraft_type == "Airbus A320"
 
 
-def test_registration_filter_rate_limiting(setup_tar1090_db):
+def test_registration_filter_empty_config(setup_tar1090_db):
     tmp_path = setup_tar1090_db
-    rf = RegistrationFilter("http://dummy-url", tmp_path)
-
-    a_conc = _make_aircraft("400A0A")
-    aircraft = [a_conc]
-
-    with patch("requests.get") as mock_get:
-        mock_resp = MagicMock()
-        mock_resp.text = "G-BOAC"
-        mock_resp.status_code = 200
-        mock_get.return_value = mock_resp
-
-        # First check (fetches because no file exists)
-        rf.process(aircraft)
-        assert mock_get.call_count == 1
-
-        # Second check immediately (skips fetch)
-        rf.process(aircraft)
-        assert mock_get.call_count == 1
-
-        # Simulate 16 minutes passing
-        ts_file = tmp_path / "modules" / "registration_filter" / "last_check.txt"
-        past_time = time.time() - 960
-        ts_file.write_text(str(past_time), encoding="utf-8")
-
-        # Third check (fetches again)
-        rf.process(aircraft)
-        assert mock_get.call_count == 2
-
-
-def test_registration_filter_fetch_failure_falls_back_to_cache(setup_tar1090_db):
-    tmp_path = setup_tar1090_db
-    
-    # Pre-populate cache
-    cache_dir = tmp_path / "modules" / "registration_filter"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    (cache_dir / "registration.txt").write_text("G-BOAC", encoding="utf-8")
-    
-    rf = RegistrationFilter("http://dummy-url", tmp_path)
-
-    a_conc = _make_aircraft("400A0A")
-    a_test = _make_aircraft("400123")
-    aircraft = [a_conc, a_test]
-
-    with patch("requests.get") as mock_get:
-        mock_get.side_effect = Exception("Network Down")
-
-        # Process cycle (fetch fails, falls back to G-BOAC cache)
-        result = rf.process(aircraft)
-
-        assert mock_get.call_count == 1
-        assert len(result) == 1
-        assert result[0] == a_conc
+    rf = RegistrationFilter([], tmp_path)
+    a_boac = _make_aircraft("400A0A", registration="G-BOAC")
+    assert rf.process([a_boac]) == []
