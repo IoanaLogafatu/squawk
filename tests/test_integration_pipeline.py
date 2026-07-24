@@ -3,7 +3,7 @@ tests/test_integration_pipeline.py
 
 Integration test for the pipeline: registration_filter -> adsbdb -> pushover.
 Verifies that aircraft identified by hex code without initial registration details
-are enriched to output formatted notifications like 'G-RUKK 737-8AS FEZ STN'.
+are enriched to output formatted notifications like 'Ryanair G-RUKK 737-8AS FEZ STN'.
 """
 
 from __future__ import annotations
@@ -29,16 +29,12 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
     db_dir.mkdir(parents=True, exist_ok=True)
     csv_file = db_dir / "aircraft.csv"
     csv_file.write_text(
-        "407F0D;G-RUKK;B738;;BOEING 737-800\n",
+        "407F0D;G-RUKK;B738;;BOEING 737-800\n"
+        "4067EE;G-EZOK;A320;;Airbus A320\n",
         encoding="utf-8"
     )
 
-    # 2. Setup registration filter cache
-    reg_dir = tmp_path / "modules" / "registration_filter"
-    reg_dir.mkdir(parents=True, exist_ok=True)
-    (reg_dir / "registration.txt").write_text("G-RUKK", encoding="utf-8")
-
-    reg_filter = RegistrationFilter("http://dummy-url", tmp_path)
+    reg_filter = RegistrationFilter(["G-RUKK", "G-EZOK"], tmp_path)
     adsbdb = AdsbdbEnricher(cache_dir=tmp_path / "modules" / "adsbdb")
     pushover = PushoverDisplay({
         "token": "valid_token_123",
@@ -67,6 +63,7 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
             },
             "flightroute": {
                 "callsign": "RYR1505",
+                "airline": {"name": "Ryanair", "icao": "RYR"},
                 "origin": {"iata_code": "FEZ", "name": "Fes Saïss"},
                 "destination": {"iata_code": "STN", "name": "London Stansted"}
             }
@@ -84,10 +81,7 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
     def mock_get(url, headers=None, timeout=None):
         resp = MagicMock()
         resp.status_code = 200
-        if url == "http://dummy-url":
-            resp.text = "G-RUKK\n"
-        else:
-            resp.json.return_value = adsbdb_api_response
+        resp.json.return_value = adsbdb_api_response
         return resp
 
     with patch("requests.get", side_effect=mock_get), patch("requests.post", side_effect=mock_post):
@@ -101,8 +95,9 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
         assert enriched[0].airframe.aircraft_type == "737-8AS"
         assert enriched[0].route.origin_iata == "FEZ"
         assert enriched[0].route.destination_iata == "STN"
+        assert enriched[0].route.airline_name == "Ryanair"
 
         # Step 3: Pushover Display
         pushover.process(enriched)
         assert len(sent_messages) == 1
-        assert sent_messages[0] == "G-RUKK 737-8AS FEZ STN"
+        assert sent_messages[0] == "Ryanair G-RUKK 737-8AS FEZ STN"

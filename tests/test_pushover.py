@@ -149,3 +149,37 @@ def test_pushover_rate_limit_checks_disk(tmp_path):
         # Third call should now go through
         display.process([a])
         assert mock_post.call_count == 2
+
+
+def test_pushover_sends_notification_with_airline_prefix(tmp_path):
+    display = PushoverDisplay({
+        "token": "valid_token",
+        "user": "valid_user",
+        "data_dir": str(tmp_path)
+    })
+
+    a = _make_aircraft(
+        "407F0D",
+        registration="G-RUKK",
+        aircraft_type="737-8AS",
+        origin_iata="FEZ",
+        destination_iata="STN"
+    )
+    a.route.airline_name = "Ryanair"
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        display.process([a])
+
+        mock_post.assert_called_once_with(
+            "https://api.pushover.net/1/messages.json",
+            data={
+                "token": "valid_token",
+                "user": "valid_user",
+                "message": "Ryanair G-RUKK 737-8AS FEZ STN"
+            },
+            timeout=5
+        )
