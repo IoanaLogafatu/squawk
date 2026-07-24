@@ -136,3 +136,20 @@ def test_registration_filter_fetch_failure_falls_back_to_cache(setup_tar1090_db)
         assert mock_get.call_count == 1
         assert len(result) == 1
         assert result[0] == a_conc
+
+
+def test_registration_filter_populates_registration_and_type(setup_tar1090_db):
+    tmp_path = setup_tar1090_db
+    cache_dir = tmp_path / "modules" / "registration_filter"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "registration.txt").write_text("G-BOAC", encoding="utf-8")
+
+    rf = RegistrationFilter("http://dummy-url", tmp_path)
+    a_hex = _make_aircraft("400A0A", registration=None)
+    assert a_hex.airframe.registration is None
+    assert a_hex.airframe.aircraft_type is None
+
+    result = rf.process([a_hex])
+    assert len(result) == 1
+    assert result[0].airframe.registration == "G-BOAC"
+    assert result[0].airframe.aircraft_type == "Concorde"

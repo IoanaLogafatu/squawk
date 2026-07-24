@@ -25,6 +25,8 @@ class RegistrationFilter(BaseModule):
         self._last_check_file = data_dir / "modules" / "registration_filter" / "last_check.txt"
         self._csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
         self._reg_to_hex: dict[str, str] = {}
+        self._hex_to_reg: dict[str, str] = {}
+        self._hex_to_type: dict[str, str] = {}
         self._last_fetched_reg: str | None = None
 
         # Resolve tar1090_db download/existence
@@ -49,8 +51,12 @@ class RegistrationFilter(BaseModule):
                         continue
                     hex_code = row[0].strip().upper()
                     reg = row[1].strip().upper()
+                    desc = (row[4].strip() if len(row) > 4 else "") or (row[2].strip() if len(row) > 2 else "")
                     if reg and hex_code:
                         self._reg_to_hex[reg] = hex_code
+                        self._hex_to_reg[hex_code] = reg
+                    if hex_code and desc:
+                        self._hex_to_type[hex_code] = desc
         except Exception as e:
             print(f"registration_filter: failed to load aircraft database: {e}")
 
@@ -84,6 +90,10 @@ class RegistrationFilter(BaseModule):
             match_reg = (reg == target_reg)
 
             if match_hex or match_reg:
+                if not a.airframe.registration:
+                    a.airframe.registration = target_reg if match_hex else (reg or self._hex_to_reg.get(hex_code, target_reg))
+                if not a.airframe.aircraft_type and hex_code in self._hex_to_type:
+                    a.airframe.aircraft_type = self._hex_to_type[hex_code]
                 filtered.append(a)
 
         return filtered
