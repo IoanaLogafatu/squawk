@@ -99,7 +99,7 @@ def test_pushover_sends_notification_with_correct_details(tmp_path):
             data={
                 "token": "valid_token",
                 "user": "valid_user",
-                "message": "G-AAAA B738 LHR JFK"
+                "message": "G-AAAA B738 LHR -> JFK"
             },
             timeout=5
         )
@@ -145,6 +145,12 @@ def test_pushover_rate_limit_checks_disk(tmp_path):
         past_time = time.time() - 960  # 16 minutes ago
         ts_file.parent.mkdir(parents=True, exist_ok=True)
         ts_file.write_text(str(past_time), encoding="utf-8")
+        json_file = tmp_path / "display" / "pushover" / "last_notification.json"
+        if json_file.exists():
+            import json
+            jdata = json.loads(json_file.read_text(encoding="utf-8"))
+            jdata["timestamp"] = past_time
+            json_file.write_text(json.dumps(jdata), encoding="utf-8")
 
         # Third call should now go through
         display.process([a])
@@ -166,6 +172,8 @@ def test_pushover_sends_notification_with_airline_prefix(tmp_path):
         destination_iata="STN"
     )
     a.route.airline_name = "Ryanair"
+    a.route.origin_country = "Morocco"
+    a.route.destination_country = "United Kingdom"
 
     with patch("requests.post") as mock_post:
         mock_resp = MagicMock()
@@ -179,7 +187,59 @@ def test_pushover_sends_notification_with_airline_prefix(tmp_path):
             data={
                 "token": "valid_token",
                 "user": "valid_user",
-                "message": "Ryanair G-RUKK 737-8AS FEZ STN"
+                "message": "Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)"
             },
             timeout=5
         )
+
+
+def test_pushover_suppresses_incomplete_route_messages(tmp_path):
+    display = PushoverDisplay({
+        "token": "valid_token",
+        "user": "valid_user",
+        "data_dir": str(tmp_path)
+    })
+
+    # Aircraft without origin/destination
+    a1 = _make_aircraft(
+        "4D2221",
+        registration="9H-QCH",
+        aircraft_type="737NG 8AS/W",
+        origin_iata=None,
+        destination_iata=None
+    )
+    a1.airframe.operator = "Malta Air"
+
+    # Aircraft with origin/destination populated
+    a2 = _make_aircraft(
+        "4D2221",
+        registration="9H-QCH",
+        aircraft_type="737NG 8AS/W",
+        origin_iata="MLA",
+        destination_iata="BVA"
+    )
+    a2.airframe.operator = "Malta Air"
+    a2.route.origin_country = "Malta"
+    a2.route.destination_country = "France"
+
+    messages = []
+
+    def mock_post(url, data=None, timeout=None):
+        messages.append(data.get("message"))
+        resp = MagicMock()
+        resp.status_code = 200
+        return resp
+
+    with patch("requests.post", side_effect=mock_post):
+        # 1. Process incomplete aircraft (suppressed, no message sent)
+        display.process([a1])
+        assert len(messages) == 0
+
+        # 2. Process complete aircraft (sends message)
+        display.process([a2])
+        assert len(messages) == 1
+        assert messages[0] == "Malta Air 9H-QCH 737NG 8AS/W MLA (Malta) -> BVA (France)"
+
+        # 3. Process complete aircraft again immediately (rate limited)
+        display.process([a2])
+        assert len(messages) == 1

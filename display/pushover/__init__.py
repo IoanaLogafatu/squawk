@@ -8,6 +8,7 @@ Restricted to send at most once every 15 minutes via a disk-based timestamp file
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 import requests
@@ -24,6 +25,7 @@ class PushoverDisplay(BaseModule):
         self._user = cfg.get("user")
         self._data_dir = Path(cfg.get("data_dir", squawk_config.squawk.data_dir))
         self._last_sent_path = self._data_dir / "display" / "pushover" / "last_notification.txt"
+        self._last_json_path = self._data_dir / "display" / "pushover" / "last_notification.json"
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
         if not aircraft:
@@ -34,22 +36,30 @@ class PushoverDisplay(BaseModule):
             print("Pushover display credentials not configured. Skipping notification.")
             return aircraft
 
-        # Format message with airline (if available), registration, type, from, and to details
         a = aircraft[0]
+        origin = a.route.origin_iata
+        dest = a.route.destination_iata
+
+        # Suppress notifications if origin or destination airport is missing
+        if not origin or not dest:
+            return aircraft
+
         airline = (a.route.airline_name or a.airframe.operator or "").strip()
         reg = a.airframe.registration or a.route.callsign or a.meta.icao_hex or "???"
         typ = a.airframe.aircraft_type or "???"
-        origin = a.route.origin_iata or "???"
-        dest = a.route.destination_iata or "???"
+
+        origin_str = f"{origin} ({a.route.origin_country})" if a.route.origin_country else origin
+        dest_str = f"{dest} ({a.route.destination_country})" if a.route.destination_country else dest
 
         if airline:
-            message = f"{airline} {reg} {typ} {origin} {dest}"
+            message = f"{airline} {reg} {typ} {origin_str} -> {dest_str}"
         else:
-            message = f"{reg} {typ} {origin} {dest}"
+            message = f"{reg} {typ} {origin_str} -> {dest_str}"
 
-        # Rate limiting: 15 minutes (900 seconds)
+        # Rate limiting: 15 minutes (900 seconds) cooldown between notifications
         now = time.time()
-        if not self._can_send(now):
+        hex_code = (a.meta.icao_hex or "").strip().upper()
+        if not self._can_send(now, hex_code):
             # print("Pushover notification rate limit active (15m). Skipping.")
             return aircraft
 
@@ -65,32 +75,46 @@ class PushoverDisplay(BaseModule):
                 timeout=5
             )
             resp.raise_for_status()
-            self._write_last_sent(now)
+            self._write_last_sent(now, hex_code, message)
             print(f"Pushover notification sent: {message}")
         except Exception as e:
             print(f"Failed to send Pushover notification: {e}")
 
         return aircraft
 
-    def _can_send(self, now: float) -> bool:
-        if not self._last_sent_path.exists():
+    def _can_send(self, now: float, hex_code: str = "") -> bool:
+        if not self._last_sent_path.exists() and not self._last_json_path.exists():
             return True
         try:
-            content = self._last_sent_path.read_text(encoding="utf-8").strip()
-            if not content:
-                return True
-            last_sent_time = float(content)
+            last_sent_time = 0.0
+
+            if self._last_json_path.exists():
+                data = json.loads(self._last_json_path.read_text(encoding="utf-8"))
+                last_sent_time = float(data.get("timestamp", 0))
+            elif self._last_sent_path.exists():
+                content = self._last_sent_path.read_text(encoding="utf-8").strip()
+                if content:
+                    last_sent_time = float(content)
+
             return (now - last_sent_time) >= 900.0
         except Exception as e:
-            print(f"Error reading last notification time from {self._last_sent_path}: {e}")
+            print(f"Error reading last notification time: {e}")
             return True
 
-    def _write_last_sent(self, now: float) -> None:
+    def _write_last_sent(self, now: float, hex_code: str = "", message: str = "") -> None:
         try:
             self._last_sent_path.parent.mkdir(parents=True, exist_ok=True)
             self._last_sent_path.write_text(str(now), encoding="utf-8")
+            data = {
+                "timestamp": now,
+                "hex": hex_code,
+                "message": message,
+            }
+            tmp = self._last_json_path.with_name(self._last_json_path.name + ".tmp")
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            tmp.replace(self._last_json_path)
         except Exception as e:
-            print(f"Error writing last notification time to {self._last_sent_path}: {e}")
+            print(f"Error writing last notification state: {e}")
 
 
 def get(cfg: dict) -> PushoverDisplay:

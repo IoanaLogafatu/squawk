@@ -3,7 +3,7 @@ tests/test_integration_pipeline.py
 
 Integration test for the pipeline: registration_filter -> adsbdb -> pushover.
 Verifies that aircraft identified by hex code without initial registration details
-are enriched to output formatted notifications like 'Ryanair G-RUKK 737-8AS FEZ STN'.
+are enriched to output formatted notifications like 'Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)'.
 """
 
 from __future__ import annotations
@@ -64,8 +64,8 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
             "flightroute": {
                 "callsign": "RYR1505",
                 "airline": {"name": "Ryanair", "icao": "RYR"},
-                "origin": {"iata_code": "FEZ", "name": "Fes Saïss"},
-                "destination": {"iata_code": "STN", "name": "London Stansted"}
+                "origin": {"iata_code": "FEZ", "name": "Fes Saïss", "country_name": "Morocco"},
+                "destination": {"iata_code": "STN", "name": "London Stansted", "country_name": "United Kingdom"}
             }
         }
     }
@@ -100,4 +100,4 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
         # Step 3: Pushover Display
         pushover.process(enriched)
         assert len(sent_messages) == 1
-        assert sent_messages[0] == "Ryanair G-RUKK 737-8AS FEZ STN"
+        assert sent_messages[0] == "Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)"
