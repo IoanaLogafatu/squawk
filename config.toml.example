@@ -73,8 +73,10 @@ registrations = [
 # ---------------------------------------------------------------------------
 
 [display.pushover]
-token = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
-user  = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+token            = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+user             = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+cooldown_seconds = 7200                       # Cooldown per flight (hex + callsign), defaults to 2 hours
+
 
 [display.http]
 port = 7700                              # HTTP port for the web display

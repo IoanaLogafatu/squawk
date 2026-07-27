@@ -123,7 +123,8 @@ def test_pushover_rate_limit_checks_disk(tmp_path):
         registration="G-AAAA",
         aircraft_type="B738",
         origin_iata="LHR",
-        destination_iata="JFK"
+        destination_iata="JFK",
+        callsign="BAW123"
     )
 
     ts_file = tmp_path / "display" / "pushover" / "last_notification.txt"
@@ -141,8 +142,8 @@ def test_pushover_rate_limit_checks_disk(tmp_path):
         display.process([a])
         assert mock_post.call_count == 1  # count should still be 1
 
-        # Simulate 16 minutes passing by manually updating the disk timestamp
-        past_time = time.time() - 960  # 16 minutes ago
+        # Simulate > 2 hours (7300 seconds) passing by manually updating the disk timestamp/json
+        past_time = time.time() - 7300  # > 2 hours ago
         ts_file.parent.mkdir(parents=True, exist_ok=True)
         ts_file.write_text(str(past_time), encoding="utf-8")
         json_file = tmp_path / "display" / "pushover" / "last_notification.json"
@@ -150,9 +151,104 @@ def test_pushover_rate_limit_checks_disk(tmp_path):
             import json
             jdata = json.loads(json_file.read_text(encoding="utf-8"))
             jdata["timestamp"] = past_time
+            if "entries" in jdata and "AA1111_BAW123" in jdata["entries"]:
+                jdata["entries"]["AA1111_BAW123"]["timestamp"] = past_time
             json_file.write_text(json.dumps(jdata), encoding="utf-8")
 
         # Third call should now go through
+        display.process([a])
+        assert mock_post.call_count == 2
+
+
+def test_pushover_hex_and_callsign_deduplication_allows_new_callsign_within_cooldown(tmp_path):
+    display = PushoverDisplay({
+        "token": "valid_token",
+        "user": "valid_user",
+        "data_dir": str(tmp_path)
+    })
+
+    # Outbound flight
+    outbound = _make_aircraft(
+        "407F0D",
+        registration="G-RUKK",
+        aircraft_type="737-8AS",
+        origin_iata="STN",
+        destination_iata="LGW",
+        callsign="RYR1505"
+    )
+
+    # Return flight 30 minutes later with same physical aircraft (hex) but new callsign
+    return_flight = _make_aircraft(
+        "407F0D",
+        registration="G-RUKK",
+        aircraft_type="737-8AS",
+        origin_iata="LGW",
+        destination_iata="EDI",
+        callsign="RYR1606"
+    )
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_post.return_value = mock_resp
+
+        # 1. First flight triggers notification
+        display.process([outbound])
+        assert mock_post.call_count == 1
+
+        # 2. Duplicate detection of same flight (same hex & callsign) within 2 hours -> blocked
+        display.process([outbound])
+        assert mock_post.call_count == 1
+
+        # 3. Same aircraft but new callsign (turnaround flight 30 minutes later) -> allowed!
+        display.process([return_flight])
+        assert mock_post.call_count == 2
+
+        # 4. Duplicate check for return flight -> blocked
+        display.process([return_flight])
+        assert mock_post.call_count == 2
+
+
+def test_pushover_custom_cooldown_setting(tmp_path):
+    display = PushoverDisplay({
+        "token": "valid_token",
+        "user": "valid_user",
+        "cooldown_seconds": 300,
+        "data_dir": str(tmp_path)
+    })
+
+    a = _make_aircraft(
+        "AA1111",
+        registration="G-AAAA",
+        aircraft_type="B738",
+        origin_iata="LHR",
+        destination_iata="JFK",
+        callsign="BAW123"
+    )
+
+    json_file = tmp_path / "display" / "pushover" / "last_notification.json"
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_post.return_value = mock_resp
+
+        display.process([a])
+        assert mock_post.call_count == 1
+
+        # Immediately blocked
+        display.process([a])
+        assert mock_post.call_count == 1
+
+        # Advance timestamp by 310 seconds (over the custom 300s cooldown)
+        if json_file.exists():
+            import json
+            jdata = json.loads(json_file.read_text(encoding="utf-8"))
+            past_time = time.time() - 310
+            jdata["timestamp"] = past_time
+            if "entries" in jdata and "AA1111_BAW123" in jdata["entries"]:
+                jdata["entries"]["AA1111_BAW123"]["timestamp"] = past_time
+            json_file.write_text(json.dumps(jdata), encoding="utf-8")
+
+        # Now allowed
         display.process([a])
         assert mock_post.call_count == 2
 
@@ -243,3 +339,4 @@ def test_pushover_suppresses_incomplete_route_messages(tmp_path):
         # 3. Process complete aircraft again immediately (rate limited)
         display.process([a2])
         assert len(messages) == 1
+

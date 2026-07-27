@@ -3,7 +3,8 @@ display/pushover/__init__.py
 
 Display module that sends a Pushover notification for the closest aircraft
 with its registration, type, origin, and destination.
-Restricted to send at most once every 15 minutes via a disk-based timestamp file.
+Restricted to send at most once per flight identifier (hex + callsign) within
+a configurable cooldown window (default 2 hours) via a disk-based JSON state file.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ class PushoverDisplay(BaseModule):
         from config import config as squawk_config
         self._token = cfg.get("token")
         self._user = cfg.get("user")
+        self._cooldown_seconds = float(cfg.get("cooldown_seconds", 7200))
         self._data_dir = Path(cfg.get("data_dir", squawk_config.squawk.data_dir))
         self._last_sent_path = self._data_dir / "display" / "pushover" / "last_notification.txt"
         self._last_json_path = self._data_dir / "display" / "pushover" / "last_notification.json"
@@ -56,11 +58,12 @@ class PushoverDisplay(BaseModule):
         else:
             message = f"{reg} {typ} {origin_str} -> {dest_str}"
 
-        # Rate limiting: 15 minutes (900 seconds) cooldown between notifications
+        # Rate limiting by hex + callsign flight identifier
         now = time.time()
         hex_code = (a.meta.icao_hex or "").strip().upper()
-        if not self._can_send(now, hex_code):
-            # print("Pushover notification rate limit active (15m). Skipping.")
+        callsign = (a.route.callsign or "").strip().upper()
+        if not self._can_send(now, hex_code, callsign):
+            # print("Pushover notification rate limit active. Skipping.")
             return aircraft
 
         # Attempt to send notification
@@ -75,43 +78,85 @@ class PushoverDisplay(BaseModule):
                 timeout=5
             )
             resp.raise_for_status()
-            self._write_last_sent(now, hex_code, message)
+            self._write_last_sent(now, hex_code, callsign, message)
             print(f"Pushover notification sent: {message}")
         except Exception as e:
             print(f"Failed to send Pushover notification: {e}")
 
         return aircraft
 
-    def _can_send(self, now: float, hex_code: str = "") -> bool:
+    def _get_key(self, hex_code: str, callsign: str) -> str:
+        h = (hex_code or "").strip().upper()
+        c = (callsign or "").strip().upper()
+        return f"{h}_{c}"
+
+    def _can_send(self, now: float, hex_code: str = "", callsign: str = "") -> bool:
         if not self._last_sent_path.exists() and not self._last_json_path.exists():
             return True
         try:
+            key = self._get_key(hex_code, callsign)
             last_sent_time = 0.0
 
             if self._last_json_path.exists():
                 data = json.loads(self._last_json_path.read_text(encoding="utf-8"))
-                last_sent_time = float(data.get("timestamp", 0))
+                if isinstance(data, dict) and "entries" in data and isinstance(data["entries"], dict):
+                    entry = data["entries"].get(key)
+                    if entry and isinstance(entry, dict):
+                        last_sent_time = float(entry.get("timestamp", 0))
+                elif isinstance(data, dict) and "timestamp" in data:
+                    legacy_hex = (data.get("hex") or "").strip().upper()
+                    if not legacy_hex or legacy_hex == (hex_code or "").strip().upper():
+                        last_sent_time = float(data.get("timestamp", 0))
             elif self._last_sent_path.exists():
                 content = self._last_sent_path.read_text(encoding="utf-8").strip()
                 if content:
                     last_sent_time = float(content)
 
-            return (now - last_sent_time) >= 900.0
+            return (now - last_sent_time) >= self._cooldown_seconds
         except Exception as e:
             print(f"Error reading last notification time: {e}")
             return True
 
-    def _write_last_sent(self, now: float, hex_code: str = "", message: str = "") -> None:
+    def _write_last_sent(self, now: float, hex_code: str = "", callsign: str = "", message: str = "") -> None:
         try:
             self._last_sent_path.parent.mkdir(parents=True, exist_ok=True)
             self._last_sent_path.write_text(str(now), encoding="utf-8")
-            data = {
+
+            key = self._get_key(hex_code, callsign)
+            entries = {}
+
+            if self._last_json_path.exists():
+                try:
+                    data = json.loads(self._last_json_path.read_text(encoding="utf-8"))
+                    if isinstance(data, dict) and "entries" in data and isinstance(data["entries"], dict):
+                        entries = data["entries"]
+                except Exception:
+                    entries = {}
+
+            # Prune entries older than cooldown_seconds
+            cutoff = now - self._cooldown_seconds
+            entries = {
+                k: v for k, v in entries.items()
+                if isinstance(v, dict) and float(v.get("timestamp", 0)) >= cutoff
+            }
+
+            entries[key] = {
                 "timestamp": now,
                 "hex": hex_code,
+                "callsign": callsign,
                 "message": message,
             }
+
+            out_data = {
+                "timestamp": now,
+                "hex": hex_code,
+                "callsign": callsign,
+                "message": message,
+                "entries": entries,
+            }
+
             tmp = self._last_json_path.with_name(self._last_json_path.name + ".tmp")
-            tmp.write_text(json.dumps(data), encoding="utf-8")
+            tmp.write_text(json.dumps(out_data, indent=2), encoding="utf-8")
             tmp.replace(self._last_json_path)
         except Exception as e:
             print(f"Error writing last notification state: {e}")
@@ -119,3 +164,4 @@ class PushoverDisplay(BaseModule):
 
 def get(cfg: dict) -> PushoverDisplay:
     return PushoverDisplay(cfg)
+
