@@ -36,10 +36,16 @@ def _signature(a: Optional[Aircraft]) -> tuple:
         a.airframe.registration,
         a.airframe.aircraft_type,
         a.airframe.operator,
+        a.route.callsign,
+        a.route.origin_iata,
+        a.route.destination_iata,
+        a.route.origin_country,
+        a.route.destination_country,
         round(a.location.distance_nm or 0, 1),
         a.location.altitude_feet,
         1 if vr > 200 else -1 if vr < -200 else 0,
     )
+
 
 
 class EpaperDisplay(BaseModule):

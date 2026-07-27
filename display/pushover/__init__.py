@@ -54,14 +54,17 @@ class PushoverDisplay(BaseModule):
         dest_str = f"{dest} ({a.route.destination_country})" if a.route.destination_country else dest
 
         if airline:
-            message = f"{airline} {reg} {typ} {origin_str} -> {dest_str}"
+            message = f"{airline} {reg} {typ} : {origin_str} -> {dest_str}"
         else:
-            message = f"{reg} {typ} {origin_str} -> {dest_str}"
+            message = f"{reg} {typ} : {origin_str} -> {dest_str}"
+
+        callsign = (a.route.callsign or "").strip().upper()
+        if callsign:
+            message = f"{message} [{callsign}]"
 
         # Rate limiting by hex + callsign flight identifier
         now = time.time()
         hex_code = (a.meta.icao_hex or "").strip().upper()
-        callsign = (a.route.callsign or "").strip().upper()
         if not self._can_send(now, hex_code, callsign):
             # print("Pushover notification rate limit active. Skipping.")
             return aircraft
@@ -95,14 +98,20 @@ class PushoverDisplay(BaseModule):
             return True
         try:
             key = self._get_key(hex_code, callsign)
+            empty_key = self._get_key(hex_code, "")
             last_sent_time = 0.0
 
             if self._last_json_path.exists():
                 data = json.loads(self._last_json_path.read_text(encoding="utf-8"))
                 if isinstance(data, dict) and "entries" in data and isinstance(data["entries"], dict):
-                    entry = data["entries"].get(key)
-                    if entry and isinstance(entry, dict):
-                        last_sent_time = float(entry.get("timestamp", 0))
+                    entries = data["entries"]
+                    if key in entries and isinstance(entries[key], dict):
+                        last_sent_time = max(last_sent_time, float(entries[key].get("timestamp", 0)))
+                    # Suppress duplicate if hex was notified with empty callsign < 15 min ago
+                    if callsign and empty_key in entries and isinstance(entries[empty_key], dict):
+                        empty_ts = float(entries[empty_key].get("timestamp", 0))
+                        if (now - empty_ts) < 900.0:
+                            last_sent_time = max(last_sent_time, empty_ts)
                 elif isinstance(data, dict) and "timestamp" in data:
                     legacy_hex = (data.get("hex") or "").strip().upper()
                     if not legacy_hex or legacy_hex == (hex_code or "").strip().upper():

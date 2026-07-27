@@ -100,4 +100,5 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
         # Step 3: Pushover Display
         pushover.process(enriched)
         assert len(sent_messages) == 1
-        assert sent_messages[0] == "Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)"
+        assert sent_messages[0] == "Ryanair G-RUKK 737-8AS : FEZ (Morocco) -> STN (United Kingdom) [RYR1505]"
+

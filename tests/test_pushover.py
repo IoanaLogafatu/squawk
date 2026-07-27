@@ -99,7 +99,7 @@ def test_pushover_sends_notification_with_correct_details(tmp_path):
             data={
                 "token": "valid_token",
                 "user": "valid_user",
-                "message": "G-AAAA B738 LHR -> JFK"
+                "message": "G-AAAA B738 : LHR -> JFK"
             },
             timeout=5
         )
@@ -208,6 +208,46 @@ def test_pushover_hex_and_callsign_deduplication_allows_new_callsign_within_cool
         assert mock_post.call_count == 2
 
 
+def test_pushover_suppresses_duplicate_when_callsign_resolves_3_minutes_later(tmp_path):
+    display = PushoverDisplay({
+        "token": "valid_token",
+        "user": "valid_user",
+        "data_dir": str(tmp_path)
+    })
+
+    # Aircraft detected initially without callsign
+    a1 = _make_aircraft(
+        "407F0D",
+        registration="EI-EKM",
+        aircraft_type="737-8AS",
+        origin_iata="NRN",
+        destination_iata="EDI",
+        callsign=None
+    )
+
+    # Same aircraft 3 minutes later after callsign is populated
+    a2 = _make_aircraft(
+        "407F0D",
+        registration="EI-EKM",
+        aircraft_type="737-8AS",
+        origin_iata="NRN",
+        destination_iata="EDI",
+        callsign="RYN23823"
+    )
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_post.return_value = mock_resp
+
+        # 1. Initial notification sent at 10:53 (callsign empty)
+        display.process([a1])
+        assert mock_post.call_count == 1
+
+        # 2. Notification at 10:56 (callsign now populated) -> suppressed because 3 min < 15 min empty callsign window!
+        display.process([a2])
+        assert mock_post.call_count == 1
+
+
 def test_pushover_custom_cooldown_setting(tmp_path):
     display = PushoverDisplay({
         "token": "valid_token",
@@ -265,7 +305,8 @@ def test_pushover_sends_notification_with_airline_prefix(tmp_path):
         registration="G-RUKK",
         aircraft_type="737-8AS",
         origin_iata="FEZ",
-        destination_iata="STN"
+        destination_iata="STN",
+        callsign="RYR1505"
     )
     a.route.airline_name = "Ryanair"
     a.route.origin_country = "Morocco"
@@ -283,7 +324,7 @@ def test_pushover_sends_notification_with_airline_prefix(tmp_path):
             data={
                 "token": "valid_token",
                 "user": "valid_user",
-                "message": "Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)"
+                "message": "Ryanair G-RUKK 737-8AS : FEZ (Morocco) -> STN (United Kingdom) [RYR1505]"
             },
             timeout=5
         )
@@ -334,9 +375,10 @@ def test_pushover_suppresses_incomplete_route_messages(tmp_path):
         # 2. Process complete aircraft (sends message)
         display.process([a2])
         assert len(messages) == 1
-        assert messages[0] == "Malta Air 9H-QCH 737NG 8AS/W MLA (Malta) -> BVA (France)"
+        assert messages[0] == "Malta Air 9H-QCH 737NG 8AS/W : MLA (Malta) -> BVA (France)"
 
         # 3. Process complete aircraft again immediately (rate limited)
         display.process([a2])
         assert len(messages) == 1
+
 

@@ -29,15 +29,16 @@ from schemas.aircraft import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_aircraft(hex_id: str, distance_nm=None, registration=None, aircraft_type=None) -> Aircraft:
+def _make_aircraft(hex_id: str, distance_nm=None, registration=None, aircraft_type=None, callsign=None) -> Aircraft:
     return Aircraft(
         meta      = AircraftMeta(icao_hex=hex_id, ingestor="test", reception_type="adsb_icao"),
         location  = AircraftLocation(distance_nm=distance_nm),
         direction = AircraftVector(),
-        route     = AircraftRoute(),
+        route     = AircraftRoute(callsign=callsign),
         airframe  = Airframe(registration=registration, aircraft_type=aircraft_type),
         raw       = AircraftRaw(),
     )
+
 
 
 # ===========================================================================
@@ -141,6 +142,25 @@ def test_render_none_returns_image():
     img = render(None)
     assert isinstance(img, Image.Image)
     assert img.size == (WIDTH, HEIGHT)
+
+
+def test_epaper_format_country_and_route():
+    from display.epaper.renderer import _format_country, _route_str
+
+    assert _format_country("United Kingdom") == "UK"
+    assert _format_country("united kingdom") == "UK"
+    assert _format_country("uk") == "UK"
+    assert _format_country("Germany") == "Germany"
+
+    a = _make_aircraft("AA1111", callsign="EZY18ZQ")
+    a.route.origin_iata = "NRN"
+    a.route.origin_country = "Germany"
+    a.route.destination_iata = "EDI"
+    a.route.destination_country = "United Kingdom"
+
+    route_str = _route_str(a)
+    assert route_str == "NRN (Germany)  →  EDI (UK)"
+
 
 
 # ===========================================================================
