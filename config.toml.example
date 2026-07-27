@@ -67,6 +67,13 @@ registrations = [
     "G-EZOK",
 ]
 
+[modules.altitude_filter]
+above           = 20000        # Minimum altitude (feet, optional)
+below           = 40000        # Maximum altitude (feet, optional)
+altitude_source = "alt_baro"   # "alt_baro" or "alt_geom" (default "alt_baro")
+fallback        = true         # Fall back to alternate source if chosen source is missing
+
+
 
 # ---------------------------------------------------------------------------
 # Display

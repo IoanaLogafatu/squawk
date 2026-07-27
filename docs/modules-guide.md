@@ -87,6 +87,19 @@ Things to notice:
 - **Return `[]` for "nothing qualifies"**, not `None`. Downstream modules iterate and crash on `None`.
 - **No state.** Filters are typically stateless — they make a decision from the data in front of them and nothing else.
 
+### altitude_filter — an altitude bounds filter
+
+Filters aircraft by altitude bounds (`above` and `below`, inclusive `>=` and `<=`). Supports selecting `altitude_source` (`"alt_baro"` or `"alt_geom"`) and configurable `fallback` (default `True`).
+
+```toml
+[modules.altitude_filter]
+above           = 10000        # Minimum altitude (feet)
+below           = 30000        # Maximum altitude (feet)
+altitude_source = "alt_baro"   # "alt_baro" or "alt_geom"
+fallback        = true         # Fall back to alternate source if chosen source is missing
+```
+
+
 ### route_enrichment — an enrichment (planned)
 
 No code yet; this is the shape. The module looks up callsigns against adsbdb and fills in origin / destination / flight number where currently `UNKNOWN`. A SQLite cache means repeated lookups for the same callsign hit the API once.
