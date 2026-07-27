@@ -18,6 +18,15 @@ from modules import BaseModule
 from schemas.aircraft import Aircraft
 
 
+def _format_country(c: str | None) -> str | None:
+    if not c:
+        return None
+    s = c.strip()
+    if s.lower() in ("united kingdom", "uk"):
+        return "UK"
+    return s
+
+
 class PushoverDisplay(BaseModule):
 
     def __init__(self, cfg: dict) -> None:
@@ -39,28 +48,27 @@ class PushoverDisplay(BaseModule):
             return aircraft
 
         a = aircraft[0]
-        origin = a.route.origin_iata
-        dest = a.route.destination_iata
-
-        # Suppress notifications if origin or destination airport is missing
-        if not origin or not dest:
-            return aircraft
 
         airline = (a.route.airline_name or a.airframe.operator or "").strip()
-        reg = a.airframe.registration or a.route.callsign or a.meta.icao_hex or "???"
-        typ = a.airframe.aircraft_type or "???"
-
-        origin_str = f"{origin} ({a.route.origin_country})" if a.route.origin_country else origin
-        dest_str = f"{dest} ({a.route.destination_country})" if a.route.destination_country else dest
-
-        if airline:
-            message = f"{airline} {reg} {typ} : {origin_str} -> {dest_str}"
-        else:
-            message = f"{reg} {typ} : {origin_str} -> {dest_str}"
-
+        reg = (a.airframe.registration or "").strip()
         callsign = (a.route.callsign or "").strip().upper()
-        if callsign:
-            message = f"{message} [{callsign}]"
+        typ = (a.airframe.aircraft_type or "").strip()
+        origin = (a.route.origin_iata or "").strip()
+        dest = (a.route.destination_iata or "").strip()
+
+        # Pushover to ignore anything without all 5 facts
+        # (Airline, Registration, Callsign, Aircraft type, Route origin/destination)
+        if not (airline and reg and callsign and typ and origin and dest):
+            return aircraft
+
+        origin_c = _format_country(a.route.origin_country)
+        dest_c = _format_country(a.route.destination_country)
+
+        origin_str = f"{origin} ({origin_c})" if origin_c else origin
+        dest_str = f"{dest} ({dest_c})" if dest_c else dest
+
+        # Format: Airline Registration [callsign] Aircraft  :  Route
+        message = f"{airline} {reg} [{callsign}] {typ}  :  {origin_str} -> {dest_str}"
 
         # Rate limiting by hex + callsign flight identifier
         now = time.time()

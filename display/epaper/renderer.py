@@ -106,9 +106,9 @@ def render(aircraft: Optional[Aircraft]) -> Image.Image:
     draw.text((8,   2), reg,   font=big, fill=0)
     draw.text((215, 2), arrow, font=big, fill=0)
 
-    # Row 1 (y=32): aircraft type + callsign [EZY18ZQ]
-    cs_str = f" [{callsign}]" if callsign else ""
-    typ_line = f"{typ}{cs_str}".strip()
+    # Row 1 (y=32): [callsign] + aircraft type
+    cs_str = f"[{callsign}] " if callsign else ""
+    typ_line = f"{cs_str}{typ}".strip()
     if typ_line:
         if len(typ_line) > 22:
             typ_line = typ_line[:21] + "…"

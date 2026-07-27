@@ -162,6 +162,15 @@ def test_epaper_format_country_and_route():
     assert route_str == "NRN (Germany)  →  EDI (UK)"
 
 
+def test_epaper_line_2_format():
+    a = _make_aircraft("AA1111", registration="G-EZOK", aircraft_type="Airbus A320", callsign="EZY18ZQ")
+    callsign = (a.route.callsign or "").strip().upper()
+    typ = a.airframe.aircraft_type or ""
+    cs_str = f"[{callsign}] " if callsign else ""
+    typ_line = f"{cs_str}{typ}".strip()
+    assert typ_line == "[EZY18ZQ] Airbus A320"
+
+
 
 # ===========================================================================
 # 3. ConsoleDisplay
