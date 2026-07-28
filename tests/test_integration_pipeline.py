@@ -1,9 +1,10 @@
 """
 tests/test_integration_pipeline.py
 
-Integration test for the pipeline: registration_filter -> adsbdb -> pushover.
+Integration test for the pipeline: tar1090_db -> registration_filter -> adsbdb -> pushover.
 Verifies that aircraft identified by hex code without initial registration details
-are enriched to output formatted notifications like 'Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)'.
+are enriched by tar1090_db first, filtered by registration_filter, enriched by adsbdb,
+and output to formatted notifications like 'Ryanair G-RUKK 737-8AS FEZ (Morocco) -> STN (United Kingdom)'.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import pytest
 from display.pushover import PushoverDisplay
 from modules.adsbdb import AdsbdbEnricher
 from modules.registration_filter import RegistrationFilter
+from modules.tar1090_db import Tar1090DbEnricher
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
@@ -24,17 +26,13 @@ from schemas.aircraft import (
 
 
 def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
-    # 1. Setup tar1090 DB fixture
-    db_dir = tmp_path / "modules" / "tar1090_db"
-    db_dir.mkdir(parents=True, exist_ok=True)
-    csv_file = db_dir / "aircraft.csv"
-    csv_file.write_text(
-        "407F0D;G-RUKK;B738;;BOEING 737-800\n"
-        "4067EE;G-EZOK;A320;;Airbus A320\n",
-        encoding="utf-8"
-    )
+    # 1. Setup tar1090 DB enricher fixture
+    tar1090_db = Tar1090DbEnricher({
+        "407F0D": ("G-RUKK", "BOEING 737-800"),
+        "4067EE": ("G-EZOK", "Airbus A320"),
+    })
 
-    reg_filter = RegistrationFilter(["G-RUKK", "G-EZOK"], tmp_path)
+    reg_filter = RegistrationFilter(["G-RUKK", "G-EZOK"])
     adsbdb = AdsbdbEnricher(cache_dir=tmp_path / "modules" / "adsbdb")
     pushover = PushoverDisplay({
         "token": "valid_token_123",
@@ -85,20 +83,25 @@ def test_pipeline_hex_aircraft_to_pushover_notification(tmp_path):
         return resp
 
     with patch("requests.get", side_effect=mock_get), patch("requests.post", side_effect=mock_post):
-        # Step 1: Filter
-        filtered = reg_filter.process([a])
+        # Step 1: Enrich hex -> registration via tar1090_db
+        tar1090_enriched = tar1090_db.process([a])
+        assert tar1090_enriched[0].airframe.registration == "G-RUKK"
+
+        # Step 2: Filter by registration
+        filtered = reg_filter.process(tar1090_enriched)
         assert len(filtered) == 1
         assert filtered[0].airframe.registration == "G-RUKK"
 
-        # Step 2: Enrich
+        # Step 3: Enrich details via adsbdb
         enriched = adsbdb.process(filtered)
         assert enriched[0].airframe.aircraft_type == "737-8AS"
         assert enriched[0].route.origin_iata == "FEZ"
         assert enriched[0].route.destination_iata == "STN"
         assert enriched[0].route.airline_name == "Ryanair"
 
-        # Step 3: Pushover Display
+        # Step 4: Pushover Display
         pushover.process(enriched)
         assert len(sent_messages) == 1
         assert sent_messages[0] == "Ryanair G-RUKK [RYR1505] 737-8AS  :  FEZ (Morocco) -> STN (UK)"
+
 
