@@ -6,6 +6,7 @@ notes/
 CLAUDE.md
 .claude
 data/
+AI-dump/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
