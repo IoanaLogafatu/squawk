@@ -73,6 +73,12 @@ below           = 40000        # Maximum altitude (feet, optional)
 altitude_source = "alt_baro"   # "alt_baro" or "alt_geom" (default "alt_baro")
 fallback        = true         # Fall back to alternate source if chosen source is missing
 
+[modules.ground_distance_filter]
+max_distance = 25           # Maximum ground distance (optional)
+min_distance = 0            # Minimum ground distance (optional)
+unit         = "miles"      # Distance unit: "miles", "km", or "nm" (default "nm")
+
+
 
 
 # ---------------------------------------------------------------------------

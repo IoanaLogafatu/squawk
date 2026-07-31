@@ -18,6 +18,7 @@ For the mechanics of writing a new one, see the **Modules Developer Guide** and 
 | `concorde` | Ingestor | `[ingestors.concorde]` | Synthetic test aircraft, no hardware needed |
 | `closest_filter` | Module — Filter | `[modules.closest_filter]` | Reduces to the single nearest aircraft |
 | `altitude_filter` | Module — Filter | `[modules.altitude_filter]` | Keeps aircraft within an altitude band |
+| `ground_distance_filter` | Module — Filter | `[modules.ground_distance_filter]` | Keeps aircraft within a ground distance range (miles, km, nm) |
 | `registration_filter` | Module — Filter | `[modules.registration_filter]` | Keeps only a configured tail-number watchlist |
 | `tar1090_db` | Module — Enrichment | *(none)* | Fills registration/type from the tar1090 CSV |
 | `adsbdb` | Module — Enrichment | *(none)* | Fills manufacturer, owner, and route from adsbdb.com |
@@ -96,6 +97,20 @@ fallback        = true         # use the other source if the chosen one is missi
 ```
 
 Reads the source's raw `alt_baro`/`alt_geom` payload fields directly (falling back to `location.altitude_feet` for baro) so it works even before `location.altitude_feet` has been populated. Raises at startup if `above > below`.
+
+#### `ground_distance_filter`
+
+Keeps only aircraft within a ground distance (2D great-circle distance ignoring altitude) range from the observer.
+
+```toml
+[modules.ground_distance_filter]
+max_distance = 25           # maximum distance (optional)
+min_distance = 0            # minimum distance (optional)
+unit         = "miles"      # "miles", "km", or "nm" (default "nm")
+```
+
+Supports distance units: `"miles"` (or `"mi"`), `"km"` (or `"kilometers"`), and `"nm"` (or `"nmi"` / `"nautical_miles"`). Evaluates distance based on `location.distance_nm` or computes Haversine ground distance from observer coordinates if `distance_nm` is absent. Raises at startup if `min_distance > max_distance`.
+
 
 #### `registration_filter`
 
