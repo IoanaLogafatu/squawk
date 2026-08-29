@@ -354,7 +354,46 @@ _PAGE = """\
   /* 5-6 panels: 3x2 */
   .grid-6, .grid-5 {
     grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-rows: repeat(2, 1fr) !important;
   }
+
+  /* 7-8 panels: 4x2 */
+  .grid-8, .grid-7 {
+    grid-template-columns: repeat(4, 1fr) !important;
+    grid-template-rows: repeat(2, 1fr) !important;
+  }
+
+  .grid-8 .panel-card, .grid-7 .panel-card, .grid-6 .panel-card, .grid-5 .panel-card {
+    padding: 1vw 1.2vw;
+    border-radius: clamp(8px, 1.1vw, 16px);
+  }
+
+  .grid-8 .breed-line, .grid-7 .breed-line {
+    font-size: clamp(1.1rem, 1.45vw, 2.2rem);
+    margin-bottom: 0.3vw;
+  }
+
+  .grid-8 .ident, .grid-7 .ident {
+    font-size: clamp(1.2rem, 1.65vw, 2.4rem);
+  }
+
+  .grid-8 .vrate, .grid-7 .vrate {
+    font-size: clamp(1.1rem, 1.5vw, 2.2rem);
+  }
+
+  .grid-8 .metric-val, .grid-7 .metric-val {
+    font-size: clamp(1rem, 1.35vw, 1.9rem);
+  }
+
+  .grid-8 .route-airports, .grid-7 .route-airports {
+    font-size: clamp(0.95rem, 1.3vw, 1.9rem);
+  }
+
+  .grid-8 .route-box, .grid-7 .route-box {
+    padding: 0.5vw 0.8vw;
+    margin: 0.5vw 0;
+  }
+
 
   /* Section Card */
   .panel-card {
@@ -385,17 +424,17 @@ _PAGE = """\
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.2vw;
+    margin-bottom: 0.8vw;
   }
 
   .panel-badge {
-    font-size: clamp(0.75rem, 1.1vw, 1.4rem);
+    font-size: clamp(0.75rem, 1.05vw, 1.35rem);
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent-blue);
     background: rgba(56, 189, 248, 0.12);
-    padding: 0.4vw 0.9vw;
+    padding: 0.35vw 0.85vw;
     border-radius: 999px;
     border: 1px solid rgba(56, 189, 248, 0.3);
   }
@@ -414,27 +453,45 @@ _PAGE = """\
     display: flex;
     flex-direction: column;
     justify-content: center;
-    margin: 0.8vw 0;
+    margin: 0.5vw 0;
+  }
+
+  .breed-line {
+    font-size: clamp(1.4rem, 2.2vw, 3.4rem);
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.15;
+    margin-bottom: 0.4vw;
+  }
+
+  .airline-tag {
+    color: var(--accent-cyan);
+    font-weight: 900;
+  }
+
+  .breed-tag {
+    color: #ffffff;
+    font-weight: 700;
   }
 
   .ident-row {
     display: flex;
     align-items: baseline;
-    gap: 1vw;
+    gap: 0.8vw;
     margin-bottom: 0.4vw;
   }
 
   .ident {
-    font-size: clamp(2.4rem, 4.2vw, 5.8rem);
-    font-weight: 900;
+    font-size: clamp(1.6rem, 2.5vw, 3.8rem);
+    font-weight: 700;
     letter-spacing: 0.04em;
     line-height: 1;
-    color: #ffffff;
+    color: var(--text-muted);
     font-family: ui-monospace, "Cascadia Code", monospace;
   }
 
   .vrate {
-    font-size: clamp(1.8rem, 3vw, 4rem);
+    font-size: clamp(1.4rem, 2.2vw, 3.2rem);
     font-weight: 700;
   }
 
@@ -652,11 +709,14 @@ function renderCard(panel) {
       </div>
 
       <div class="aircraft-main">
+        <div class="breed-line">
+          ${a.airline ? `<span class="airline-tag">${esc(a.airline)}</span> ` : ''}
+          <span class="breed-tag">${esc(a.aircraft_type || 'Unknown Airframe')}</span>
+        </div>
         <div class="ident-row">
           <span class="ident">${esc(a.ident)}</span>
           <span class="vrate ${vrateClass}">${esc(a.vrate)}</span>
         </div>
-        <div class="type-line">${airlineStr}${typeStr}</div>
         ${routeHtml}
       </div>
 
@@ -697,7 +757,7 @@ function renderState(state) {
 
   const count = panelKeys.length;
   channelElem.textContent = `${count} ${count === 1 ? 'CHANNEL' : 'CHANNELS'}`;
-  dashboard.className = `grid-${Math.min(count, 6)}`;
+  dashboard.className = `grid-${Math.min(count, 8)}`;
 
   let html = '';
   for (const k of panelKeys) {
