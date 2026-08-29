@@ -59,10 +59,11 @@ def main() -> None:
         print("Nothing enabled in config.toml — nothing to do.")
         return
 
-    # Keep the main thread alive until Ctrl+C
+    # Keep main thread alive until Ctrl+C
+    import time
     try:
-        for thread in threads:
-            thread.join()
+        while any(t.is_alive() for t in threads):
+            time.sleep(0.5)
     except KeyboardInterrupt:
         print("\nSquawk stopped.")
 
