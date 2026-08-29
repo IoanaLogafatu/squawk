@@ -29,6 +29,7 @@ from schemas.aircraft import Aircraft
 class DiskDriveStorage(BaseStorage):
 
     def __init__(self, data_dir: Path) -> None:
+        super().__init__()
         self.aircraft_dir = data_dir / "tracked_aircraft"
         self.aircraft_dir.mkdir(parents=True, exist_ok=True)
 

@@ -18,7 +18,6 @@ from config import config
 from display import get_display
 from modules import get_module
 from storage import get_storage
-from schemas.aircraft import aircraft_from_dict
 
 if TYPE_CHECKING:
     from config import ProcessorConfig
@@ -44,7 +43,7 @@ def run(proc_cfg: ProcessorConfig | None = None) -> None:
         cycle_start = time.time()
 
         try:
-            aircraft = [aircraft_from_dict(d) for d in storage.retrieve_aircraft_array()]
+            aircraft = storage.retrieve_aircraft_objects()
 
             for f in filters:
                 aircraft = f.process(aircraft)
