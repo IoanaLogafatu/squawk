@@ -53,7 +53,7 @@ backend = "disk_drive"
 [processors.low_level]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "low_altitude", "adsbdb", "closest_filter"]
+modules               = ["low_altitude", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "low_level"
 panel_title           = "Approach & Low (< 5k ft)"
@@ -61,7 +61,7 @@ panel_title           = "Approach & Low (< 5k ft)"
 [processors.mid_level]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "mid_altitude", "adsbdb", "closest_filter"]
+modules               = ["mid_altitude", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "mid_level"
 panel_title           = "Mid Level (5k–15k ft)"
@@ -69,7 +69,7 @@ panel_title           = "Mid Level (5k–15k ft)"
 [processors.upper_level]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "upper_altitude", "adsbdb", "closest_filter"]
+modules               = ["upper_altitude", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "upper_level"
 panel_title           = "Upper Level (15k–25k ft)"
@@ -77,7 +77,7 @@ panel_title           = "Upper Level (15k–25k ft)"
 [processors.high_cruise]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "high_altitude", "adsbdb", "closest_filter"]
+modules               = ["high_altitude", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "high_cruise"
 panel_title           = "High Cruise (> 25k ft)"
@@ -87,7 +87,7 @@ panel_title           = "High Cruise (> 25k ft)"
 [processors.closest_overhead]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "near_distance", "adsbdb", "closest_filter"]
+modules               = ["near_distance", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "closest_overhead"
 panel_title           = "Nearby (< 10 nm)"
@@ -95,7 +95,7 @@ panel_title           = "Nearby (< 10 nm)"
 [processors.watchlist]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "registration_filter", "adsbdb", "closest_filter"]
+modules               = ["registration_filter", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "watchlist"
 panel_title           = "Watchlist Target"
@@ -103,7 +103,7 @@ panel_title           = "Watchlist Target"
 [processors.descending]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "descending_filter", "adsbdb", "closest_filter"]
+modules               = ["descending_filter", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "descending"
 panel_title           = "Inbound / Descending"
@@ -111,10 +111,11 @@ panel_title           = "Inbound / Descending"
 [processors.climbing]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "climbing_filter", "adsbdb", "closest_filter"]
+modules               = ["climbing_filter", "closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
 panel                 = "climbing"
 panel_title           = "Outbound / Climbing"
+
 
 # --- Notifications ---
 

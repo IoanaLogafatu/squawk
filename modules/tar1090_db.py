@@ -70,6 +70,13 @@ def _download(csv_path: Path) -> None:
     print(f"  tar1090_db: saved to {csv_path}")
 
 
+import sys
+import threading
+
+_DB_CACHE: dict[str, tuple[str | None, str | None]] | None = None
+_DB_LOCK = threading.Lock()
+
+
 def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
     db: dict[str, tuple[str | None, str | None]] = {}
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -78,30 +85,37 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
             if len(row) < 3:
                 continue
             hex_code = row[0].strip().upper()
-            reg      = row[1].strip() or None
+            reg_raw  = row[1].strip() or None
+            reg      = sys.intern(reg_raw) if reg_raw else None
             # Prefer the human-readable description (col 4); fall back to the
             # ICAO type code (col 2) when the description field is empty.
-            desc     = (row[4].strip() if len(row) > 4 else "") or row[2].strip() or None
+            desc_raw = (row[4].strip() if len(row) > 4 else "") or row[2].strip() or None
+            desc     = sys.intern(desc_raw) if desc_raw else None
             if hex_code:
-                db[hex_code] = (reg, desc)
+                db[sys.intern(hex_code)] = (reg, desc)
     return db
 
 
 def get(cfg: dict) -> Tar1090DbEnricher:
-    from config import config as squawk_config
-    data_dir = Path(squawk_config.squawk.data_dir)
-    csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
+    global _DB_CACHE
+    with _DB_LOCK:
+        if _DB_CACHE is None:
+            from config import config as squawk_config
+            data_dir = Path(squawk_config.squawk.data_dir)
+            csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
 
-    if _needs_refresh(csv_path):
-        try:
-            _download(csv_path)
-        except Exception as exc:
-            if csv_path.exists():
-                print(f"  tar1090_db: refresh failed ({exc}), using cached data")
-            else:
-                print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
-                return Tar1090DbEnricher(db={})
+            if _needs_refresh(csv_path):
+                try:
+                    _download(csv_path)
+                except Exception as exc:
+                    if csv_path.exists():
+                        print(f"  tar1090_db: refresh failed ({exc}), using cached data")
+                    else:
+                        print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
+                        return Tar1090DbEnricher(db={})
 
-    db = _load_db(csv_path)
-    print(f"  tar1090_db: loaded {len(db):,} records")
-    return Tar1090DbEnricher(db)
+            _DB_CACHE = _load_db(csv_path)
+            print(f"  tar1090_db: loaded {len(_DB_CACHE):,} records (shared memory)")
+
+    return Tar1090DbEnricher(_DB_CACHE)
+
