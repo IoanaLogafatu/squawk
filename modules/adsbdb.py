@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -155,9 +156,17 @@ class AdsbdbEnricher(BaseModule):
         if callsign:
             paths.append(self._cache_dir / f"{callsign}.json")
         for path in paths:
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, path)
+            tmp = path.with_name(f"{path.name}.{threading.get_ident()}_{time.time_ns()}.tmp")
+            try:
+                tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, path)
+            except OSError:
+                if tmp.exists():
+                    try:
+                        tmp.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
 
     def _fetch(self, hex_id: str, callsign: str | None = None) -> Optional[dict]:
         url = f"{_API_BASE}/{hex_id}?callsign={callsign}" if callsign else f"{_API_BASE}/{hex_id}"

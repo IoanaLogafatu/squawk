@@ -17,6 +17,7 @@ Atomic writes (temp-and-replace) prevent partial reads.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -45,12 +46,16 @@ class DiskDriveStorage(BaseStorage):
                 except (OSError, ValueError):
                     pass  # unreadable — fall through and overwrite
 
-            tmp = path.with_suffix(".tmp")
+            tmp = path.with_name(f"{path.stem}.{threading.get_ident()}_{time.time_ns()}.tmp")
             try:
                 tmp.write_text(json.dumps(a, cls=SquawkEncoder, indent=2))
                 tmp.replace(path)
             except OSError:
-                pass  # silent; next cycle will retry
+                if tmp.exists():
+                    try:
+                        tmp.unlink(missing_ok=True)
+                    except OSError:
+                        pass
 
         self._expire_stale()
 
