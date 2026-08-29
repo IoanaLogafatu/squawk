@@ -40,6 +40,21 @@ display               = "epaper"
 
 Each module's specific settings are defined under `[modules.<module_name>]`.
 
+### Ingestor modules — what enters storage
+
+Modules listed on an ingestor define what enters storage. They run against every aircraft before it is saved, and every processor chain sees only what survives them — no chain can recover what was dropped.
+
+Enrichment here is cheap and applies once for the whole installation, which is why `tar1090_db` belongs on the ingestor rather than in each chain.
+
+A filter here is a deliberate choice to narrow the entire installation. A 20nm range filter is a reasonable configuration if you only care about aircraft visible from the window: storage stays small and every chain downstream is cheaper. Use it when that is what you mean. If you want a narrower view for a single panel, put the filter in that chain instead — a filter written on the ingestor will silently narrow all of them.
+
+```toml
+[ingestors.personal_adsb]
+enabled = true
+modules = ["tar1090_db"]      # runs once per aircraft on ingest
+receivers = [ ... ]
+```
+
 
 ## Categories — what modules do
 

@@ -123,7 +123,7 @@ Keeps only aircraft matching a configured watchlist of tail numbers — useful f
 registrations = ["G-RUKG", "G-RUKC", "G-UJEA"]
 ```
 
-Filters aircraft based on `airframe.registration` matching the configured watchlist (case-insensitive). Requires an upstream enrichment (such as `tar1090_db`) that populates `airframe.registration` if the raw feed only provides ICAO hex — has no data source of its own.
+Filters aircraft based on `airframe.registration` matching the configured watchlist (case-insensitive). Registration arrives from ingest-time enrichment (`tar1090_db` is configured on the `personal_adsb` ingestor), so `registration_filter` can sit anywhere in a chain without needing an enrichment ahead of it.
 
 ### Enrichments
 
@@ -133,9 +133,10 @@ Enrichments fill `UNKNOWN` fields in place. Output length always equals input le
 
 Fills `airframe.registration` and `airframe.aircraft_type` from the [tar1090-db](https://github.com/wiedehopf/tar1090-db) aircraft CSV, keyed by ICAO hex. Only fills fields that are currently `None` — never overwrites data the source already supplied.
 
+- **Configured on the ingestor, not in a processor chain.** Listed under `modules = [...]` on `[ingestors.personal_adsb]`, so enrichment runs once per aircraft on ingest rather than once per chain per cycle. The enriched values are written into storage, so `data/tracked_aircraft/*.json` files carry registration and aircraft type on disk.
 - Downloads `aircraft.csv.gz` automatically on first run and refreshes it every 30 days.
 - Cached at `<data_dir>/modules/tar1090_db/aircraft.csv`.
-- No config keys — it's zero-configuration once enabled in the chain.
+- No config keys of its own.
 
 As noted in project learnings: this only reliably covers US-registered aircraft. European commercial traffic needs the `adsbdb` → callsign-prefix → OpenFlights fallback chain to fill the same fields.
 

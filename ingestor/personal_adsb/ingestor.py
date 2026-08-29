@@ -131,6 +131,9 @@ def run() -> None:
     from storage import get_storage
     storage = get_storage(config.storage.method, config.squawk.data_dir)
 
+    from ingestor import get_ingest_modules
+    ingest_modules = get_ingest_modules(cfg)
+
     last_seen: dict[str, datetime] = {}  # persists across poll cycles
 
     while True:
@@ -162,7 +165,12 @@ def run() -> None:
         if snapshots:
             merged   = _merge_snapshots(snapshots)
             envelope = _build_envelope(merged, receiver_status)
-            storage.save_aircraft_array(envelope.aircraft)
+
+            aircraft = envelope.aircraft
+            for m in ingest_modules:
+                aircraft = m.process(aircraft)
+
+            storage.save_aircraft_array(aircraft)
 
 
         sleep_for = max(0.0, cfg.get("poll_interval_seconds", 5) - (time.time() - cycle_start))
