@@ -28,7 +28,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.adsbdb import AdsbdbEnricher
+import modules.adsbdb as adsbdb_module
+from modules.adsbdb import AdsbdbEnricher, _RATE_60S
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
@@ -283,3 +284,62 @@ def test_callsign_normalised_to_trimmed_uppercase_filename(tmp_path, monkeypatch
 
     assert     (tmp_path / "RYR54NN.json").exists()
     assert not (tmp_path / "RYR54NN .json").exists()
+
+
+# ---------------------------------------------------------------------------
+# 11. Module-level shared instance — get() returns the same object each call
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def reset_shared_instance(tmp_path, monkeypatch):
+    saved = adsbdb_module._INSTANCE
+    adsbdb_module._INSTANCE = None
+
+    class _Squawk:
+        data_dir = str(tmp_path)
+
+    class _Cfg:
+        squawk = _Squawk()
+
+    monkeypatch.setitem(__import__("sys").modules, "config", type("M", (), {"config": _Cfg()}))
+    yield
+    adsbdb_module._INSTANCE = saved
+
+
+def test_get_returns_shared_instance(reset_shared_instance):
+    first  = adsbdb_module.get({})
+    second = adsbdb_module.get({})
+    assert first is second
+
+
+def test_rate_limiter_is_shared_across_get_calls(reset_shared_instance):
+    first  = adsbdb_module.get({})
+    second = adsbdb_module.get({})
+    now = time.monotonic()
+    for _ in range(_RATE_60S):
+        first._call_times.append(now - 1)
+    assert second._try_acquire() is False
+
+
+# ---------------------------------------------------------------------------
+# 12. One permit per fetch — guard lives in _fetch, not the caller
+# ---------------------------------------------------------------------------
+
+def test_fetch_records_one_permit_per_call(tmp_path, monkeypatch):
+    _mock_error(monkeypatch)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    enricher._fetch("4D2387", "RYR54NN")
+    enricher._fetch("4D2387", None)
+    assert len(enricher._call_times) == 2
+
+
+def test_fetch_denied_when_rate_limited_and_no_http(tmp_path, monkeypatch):
+    called = []
+    monkeypatch.setattr("modules.adsbdb.requests.get", lambda *a, **kw: called.append(1))
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    now = time.monotonic()
+    for _ in range(_RATE_60S):
+        enricher._call_times.append(now - 1)
+
+    assert enricher._fetch("4D2387", "RYR54NN") is None
+    assert not called

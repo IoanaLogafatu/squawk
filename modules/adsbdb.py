@@ -82,6 +82,7 @@ class AdsbdbEnricher(BaseModule):
     def __init__(self, cache_dir: Path) -> None:
         self._cache_dir = cache_dir
         self._call_times: deque[float] = deque()
+        self._rate_lock = threading.Lock()
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
         for a in aircraft:
@@ -119,17 +120,12 @@ class AdsbdbEnricher(BaseModule):
         if cache_fresh and cached_data is not None and isinstance(cached_data, dict):
             if cached_data.get("not_found"):
                 return cached_data
-            # If callsign is provided but cached data has no flightroute, try fetching if rate limit permits
-            if callsign and "flightroute" not in cached_data and self._under_rate_limit():
+            if callsign and "flightroute" not in cached_data:
                 fetched = self._fetch(hex_id, callsign)
                 if fetched is not None and isinstance(fetched, dict) and "aircraft" in fetched:
                     self._save_cache(hex_id, callsign, fetched)
                     return fetched
             return cached_data
-
-        if not self._under_rate_limit():
-            print(f"  adsbdb: rate limit reached — skipping {hex_id}")
-            return cached_data if (cached_data is not None and isinstance(cached_data, dict)) else None
 
         # 1. Try with callsign if available
         if callsign:
@@ -171,14 +167,14 @@ class AdsbdbEnricher(BaseModule):
     def _fetch(self, hex_id: str, callsign: str | None = None) -> Optional[dict]:
         url = f"{_API_BASE}/{hex_id}?callsign={callsign}" if callsign else f"{_API_BASE}/{hex_id}"
         lbl = f"{hex_id}/{callsign}" if callsign else hex_id
+        if not self._try_acquire():
+            print(f"  adsbdb: rate limit reached — skipping {lbl}")
+            return None
         try:
             resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT_SECONDS)
         except Exception as exc:
-            self._record_call()
             print(f"  adsbdb: error fetching {lbl}: {exc}")
             return None
-
-        self._record_call()
 
         if not resp or not hasattr(resp, "status_code"):
             return None
@@ -206,19 +202,18 @@ class AdsbdbEnricher(BaseModule):
         print(f"  adsbdb: unexpected status {resp.status_code} for {lbl}")
         return None
 
-    def _under_rate_limit(self) -> bool:
-        now = time.monotonic()
-        while self._call_times and now - self._call_times[0] > 300:
-            self._call_times.popleft()
-        if len(self._call_times) >= _RATE_300S:
-            return False
-        count_60s = sum(1 for t in self._call_times if now - t <= 60)
-        if count_60s >= _RATE_60S:
-            return False
-        return True
-
-    def _record_call(self) -> None:
-        self._call_times.append(time.monotonic())
+    def _try_acquire(self) -> bool:
+        """Reserve one API call slot. Returns False if either rate limit is reached."""
+        with self._rate_lock:
+            now = time.monotonic()
+            while self._call_times and now - self._call_times[0] > 300:
+                self._call_times.popleft()
+            if len(self._call_times) >= _RATE_300S:
+                return False
+            if sum(1 for t in self._call_times if now - t <= 60) >= _RATE_60S:
+                return False
+            self._call_times.append(now)
+            return True
 
     def _apply(self, aircraft: Aircraft, data: dict) -> None:
         aircraft.raw.adsbdb = data
@@ -256,9 +251,17 @@ class AdsbdbEnricher(BaseModule):
             aircraft.route.destination_country = dest["country_name"]
 
 
+_INSTANCE: AdsbdbEnricher | None = None
+_INSTANCE_LOCK = threading.Lock()
+
+
 def get(cfg: dict) -> AdsbdbEnricher:
-    from config import config as squawk_config
-    data_dir  = Path(squawk_config.squawk.data_dir)
-    cache_dir = data_dir / "modules" / "adsbdb"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return AdsbdbEnricher(cache_dir=cache_dir)
+    global _INSTANCE
+    with _INSTANCE_LOCK:
+        if _INSTANCE is None:
+            from config import config as squawk_config
+            data_dir  = Path(squawk_config.squawk.data_dir)
+            cache_dir = data_dir / "modules" / "adsbdb"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            _INSTANCE = AdsbdbEnricher(cache_dir=cache_dir)
+    return _INSTANCE
