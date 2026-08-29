@@ -15,10 +15,11 @@ is missing or older than 30 days, then cached at:
     <data_dir>/modules/tar1090_db/aircraft.csv
 """
 
-from __future__ import annotations
-
 import csv
 import gzip
+import sqlite3
+import sys
+import threading
 import time
 from pathlib import Path
 
@@ -32,14 +33,32 @@ _CSV_URL      = "https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/airc
 _REFRESH_DAYS = 30
 
 
+class SQLiteTarDb:
+
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+        self._local = threading.local()
+
+    def get(self, hex_code: str) -> tuple[str | None, str | None] | None:
+        if not hasattr(self._local, "conn"):
+            self._local.conn = sqlite3.connect(str(self._db_path), timeout=5)
+            self._local.cursor = self._local.conn.cursor()
+        self._local.cursor.execute("SELECT reg, type_code FROM aircraft WHERE hex = ?", (hex_code,))
+        return self._local.cursor.fetchone()
+
+
 class Tar1090DbEnricher(BaseModule):
 
-    def __init__(self, db: dict[str, tuple[str | None, str | None]]) -> None:
+    def __init__(self, db: dict[str, tuple[str | None, str | None]] | SQLiteTarDb | None = None) -> None:
         # icao_hex (uppercase) → (registration, aircraft_type)
         self._db = db
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
+        if not self._db:
+            return aircraft
         for a in aircraft:
+            if not a.meta.icao_hex:
+                continue
             row = self._db.get(a.meta.icao_hex)
             if row is None:
                 continue
@@ -70,14 +89,40 @@ def _download(csv_path: Path) -> None:
     print(f"  tar1090_db: saved to {csv_path}")
 
 
-import sys
-import threading
+def _build_sqlite_db(csv_path: Path, db_path: Path) -> None:
+    tmp_db = db_path.with_suffix(".tmp")
+    if tmp_db.exists():
+        tmp_db.unlink(missing_ok=True)
+    conn = sqlite3.connect(str(tmp_db))
+    cur = conn.cursor()
+    cur.execute("PRAGMA synchronous = OFF")
+    cur.execute("PRAGMA journal_mode = MEMORY")
+    cur.execute("CREATE TABLE aircraft (hex TEXT PRIMARY KEY, reg TEXT, type_code TEXT)")
 
-_DB_CACHE: dict[str, tuple[str | None, str | None]] | None = None
-_DB_LOCK = threading.Lock()
+    batch = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f, delimiter=";")
+        for row in reader:
+            if len(row) < 3:
+                continue
+            hex_code = row[0].strip().upper()
+            if not hex_code:
+                continue
+            reg = row[1].strip() or None
+            desc = (row[4].strip() if len(row) > 4 else "") or row[2].strip() or None
+            batch.append((hex_code, reg, desc))
+            if len(batch) >= 50000:
+                cur.executemany("INSERT OR REPLACE INTO aircraft VALUES (?, ?, ?)", batch)
+                batch = []
+        if batch:
+            cur.executemany("INSERT OR REPLACE INTO aircraft VALUES (?, ?, ?)", batch)
+    conn.commit()
+    conn.close()
+    tmp_db.replace(db_path)
 
 
 def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
+    """Legacy dictionary loader for testing."""
     db: dict[str, tuple[str | None, str | None]] = {}
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f, delimiter=";")
@@ -87,8 +132,6 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
             hex_code = row[0].strip().upper()
             reg_raw  = row[1].strip() or None
             reg      = sys.intern(reg_raw) if reg_raw else None
-            # Prefer the human-readable description (col 4); fall back to the
-            # ICAO type code (col 2) when the description field is empty.
             desc_raw = (row[4].strip() if len(row) > 4 else "") or row[2].strip() or None
             desc     = sys.intern(desc_raw) if desc_raw else None
             if hex_code:
@@ -96,26 +139,36 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
     return db
 
 
+_SQLITE_INSTANCE: SQLiteTarDb | None = None
+_SQLITE_LOCK = threading.Lock()
+
+
 def get(cfg: dict) -> Tar1090DbEnricher:
-    global _DB_CACHE
-    with _DB_LOCK:
-        if _DB_CACHE is None:
+    global _SQLITE_INSTANCE
+    with _SQLITE_LOCK:
+        if _SQLITE_INSTANCE is None:
             from config import config as squawk_config
             data_dir = Path(squawk_config.squawk.data_dir)
             csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
+            db_path  = data_dir / "modules" / "tar1090_db" / "aircraft.db"
 
             if _needs_refresh(csv_path):
                 try:
                     _download(csv_path)
                 except Exception as exc:
-                    if csv_path.exists():
-                        print(f"  tar1090_db: refresh failed ({exc}), using cached data")
-                    else:
+                    if not csv_path.exists():
                         print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
                         return Tar1090DbEnricher(db={})
 
-            _DB_CACHE = _load_db(csv_path)
-            print(f"  tar1090_db: loaded {len(_DB_CACHE):,} records (shared memory)")
+            if csv_path.exists():
+                if not db_path.exists() or db_path.stat().st_mtime < csv_path.stat().st_mtime:
+                    print(f"  tar1090_db: building SQLite index {db_path.name} …")
+                    _build_sqlite_db(csv_path, db_path)
+                _SQLITE_INSTANCE = SQLiteTarDb(db_path)
+                print(f"  tar1090_db: active via SQLite (0 MB RAM overhead)")
+            else:
+                return Tar1090DbEnricher(db={})
 
-    return Tar1090DbEnricher(_DB_CACHE)
+    return Tar1090DbEnricher(_SQLITE_INSTANCE)
+
 
