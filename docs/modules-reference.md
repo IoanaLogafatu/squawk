@@ -1,6 +1,6 @@
-# Squawk — Available Plugins
+# Squawk — Modules Reference
 
-This is a reference catalogue of every plugin shipping in this release: what it does, how it's configured, and where it sits in the pipeline.
+This is a reference catalogue of every module (filter, enrichment, and display) shipping in this release: what it does, how it's configured, and where it sits in the pipeline.
 
 ```
 ingestor → storage ← processors (independent chains) → displays

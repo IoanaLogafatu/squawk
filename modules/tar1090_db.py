@@ -1,5 +1,5 @@
 """
-plugins/tar1090_db.py
+modules/tar1090_db.py
 
 Enriches Aircraft records with registration and aircraft type from the
 tar1090 aircraft database (aircraft.csv), a semicolon-delimited CSV.

@@ -48,11 +48,21 @@ backend = "disk_drive"
 # Processors (Independent Chains)
 # ---------------------------------------------------------------------------
 
-[processors.screen]
+[processors.low_level]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["closest_filter", "tar1090_db", "adsbdb"]
+modules               = ["tar1090_db", "low_altitude", "adsbdb", "closest_filter"]
 display               = "http"
+panel                 = "low_level"
+panel_title           = "Below 10,000 ft (Low Level)"
+
+[processors.high_level]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["tar1090_db", "high_altitude", "adsbdb", "closest_filter"]
+display               = "http"
+panel                 = "high_level"
+panel_title           = "Above 10,000 ft (High Altitude)"
 
 [processors.pushover]
 enabled               = false
@@ -62,9 +72,18 @@ display               = "pushover"
 
 
 
+
 # ---------------------------------------------------------------------------
 # Modules
 # ---------------------------------------------------------------------------
+
+[modules.low_altitude]
+type  = "altitude_filter"
+below = 10000
+
+[modules.high_altitude]
+type  = "altitude_filter"
+above = 10000
 
 [modules.registration_filter]
 registrations = [
@@ -74,6 +93,7 @@ registrations = [
     "G-LMTE",
     "G-EZOK",
 ]
+
 
 [modules.altitude_filter]
 above           = 20000        # Minimum altitude (feet, optional)

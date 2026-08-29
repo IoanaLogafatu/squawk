@@ -121,6 +121,29 @@ def test_http_display_default_port_is_7700():
     assert display is not None
 
 
+def test_http_display_multi_panel_updates():
+    port = _free_port()
+    display_low = HttpDisplay({"port": port, "panel_id": "low_level", "panel_title": "Below 10k"})
+    display_high = HttpDisplay({"port": port, "panel_id": "high_level", "panel_title": "Above 10k"})
+
+    a_low = _make_aircraft(hex_id="111111", registration="G-LOWW", altitude_feet=4000)
+    a_high = _make_aircraft(hex_id="222222", registration="G-HIGH", altitude_feet=32000)
+
+    display_low.process([a_low])
+    display_high.process([a_high])
+
+    time.sleep(0.05)
+    status, body = _get(f"http://localhost:{port}/api/status")
+    assert status == 200
+    data = json.loads(body)
+    assert "panels" in data
+    assert "low_level" in data["panels"]
+    assert "high_level" in data["panels"]
+    assert data["panels"]["low_level"]["aircraft"]["ident"] == "G-LOWW"
+    assert data["panels"]["high_level"]["aircraft"]["ident"] == "G-HIGH"
+
+
+
 # ===========================================================================
 # 3. render_data
 # ===========================================================================

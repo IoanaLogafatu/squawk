@@ -30,8 +30,10 @@ class BaseModule(ABC):
 
 def get_module(name: str, cfg: dict | None = None) -> BaseModule:
     cfg = cfg or {}
+    module_type = cfg.get("type", cfg.get("module", name))
     try:
-        module = importlib.import_module(f"modules.{name}")
+        module = importlib.import_module(f"modules.{module_type}")
     except ModuleNotFoundError:
-        raise ValueError(f"Unknown module: {name!r}")
+        raise ValueError(f"Unknown module: {name!r} (resolved to {module_type!r})")
     return module.get(cfg)
+
