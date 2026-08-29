@@ -42,9 +42,16 @@ def main() -> None:
         thread.start()
         threads.append(thread)
 
-    if config.processor:
+    for name, proc_cfg in config.processors.items():
+        if not proc_cfg.enabled:
+            continue
         from processor.processor import run as processor_run
-        thread = threading.Thread(target=processor_run, name="Processor", daemon=True)
+        thread = threading.Thread(
+            target=processor_run,
+            args=(proc_cfg,),
+            name=f"Processor-{name}",
+            daemon=True,
+        )
         thread.start()
         threads.append(thread)
 

@@ -46,20 +46,32 @@ class StorageConfig:
 
 @dataclass
 class ProcessorConfig:
-    poll_interval_seconds: int         # How often the processor runs
-    modules:               list[str]   # Module names, applied in order
-    display:               str | None  # Display module name
+    name:                  str                  # Identifier for the processor chain
+    poll_interval_seconds: int        = 5       # How often the processor runs
+    modules:               list[str]  = field(default_factory=list) # Module names, applied in order
+    display:               str | None = None    # Display module name
+    enabled:               bool       = True    # Whether this processor chain is active
 
 
 @dataclass
 class SquawkConfig:
-    squawk:    SquawkSystemConfig
-    observer:  ObserverConfig
-    storage:   StorageConfig
-    ingestors: dict[str, dict]
-    processor: ProcessorConfig | None = None
-    display:   dict = field(default_factory=dict)   # Per-display config keyed by module name
-    modules:   dict = field(default_factory=dict)   # Per-module config keyed by module name
+    squawk:     SquawkSystemConfig
+    observer:   ObserverConfig
+    storage:    StorageConfig
+    ingestors:  dict[str, dict]
+    processors: dict[str, ProcessorConfig] = field(default_factory=dict)
+    display:    dict = field(default_factory=dict)   # Per-display config keyed by module name
+    modules:    dict = field(default_factory=dict)   # Per-module config keyed by module name
+
+    @property
+    def processor(self) -> ProcessorConfig | None:
+        """Backwards compatibility for single processor access."""
+        if not self.processors:
+            return None
+        for p in self.processors.values():
+            if p.enabled:
+                return p
+        return next(iter(self.processors.values()), None)
 
 
 # ---------------------------------------------------------------------------
@@ -91,15 +103,36 @@ def _load_storage(raw: dict) -> StorageConfig:
     )
 
 
-def _load_processor(raw: dict) -> ProcessorConfig | None:
-    proc = raw.get("processor")
-    if proc is None:
-        return None
-    return ProcessorConfig(
-        poll_interval_seconds = proc.get("poll_interval_seconds", 5),
-        modules               = proc.get("modules", []),
-        display               = proc.get("display"),
-    )
+def _load_processors(raw: dict) -> dict[str, ProcessorConfig]:
+    processors: dict[str, ProcessorConfig] = {}
+
+    # 1. Multi-processor syntax: [processors.<name>]
+    raw_processors = raw.get("processors", {})
+    if isinstance(raw_processors, dict):
+        for name, p in raw_processors.items():
+            if not isinstance(p, dict):
+                continue
+            processors[name] = ProcessorConfig(
+                name                  = name,
+                enabled               = p.get("enabled", True),
+                poll_interval_seconds = p.get("poll_interval_seconds", 5),
+                modules               = p.get("modules", []),
+                display               = p.get("display"),
+            )
+
+    # 2. Legacy single processor syntax: [processor]
+    legacy_proc = raw.get("processor")
+    if legacy_proc and isinstance(legacy_proc, dict):
+        if "default" not in processors:
+            processors["default"] = ProcessorConfig(
+                name                  = "default",
+                enabled               = legacy_proc.get("enabled", True),
+                poll_interval_seconds = legacy_proc.get("poll_interval_seconds", 5),
+                modules               = legacy_proc.get("modules", []),
+                display               = legacy_proc.get("display"),
+            )
+
+    return processors
 
 
 def _load_display(raw: dict) -> dict:
@@ -121,13 +154,13 @@ def load_config(path: Path = CONFIG_PATH) -> SquawkConfig:
         raw = tomllib.load(f)
 
     return SquawkConfig(
-        squawk    = _load_squawk(raw),
-        observer  = _load_observer(raw),
-        storage   = _load_storage(raw),
-        ingestors = _load_ingestors(raw),
-        processor = _load_processor(raw),
-        display   = _load_display(raw),
-        modules   = raw.get("modules", {}),
+        squawk     = _load_squawk(raw),
+        observer   = _load_observer(raw),
+        storage    = _load_storage(raw),
+        ingestors  = _load_ingestors(raw),
+        processors = _load_processors(raw),
+        display    = _load_display(raw),
+        modules    = raw.get("modules", {}),
     )
 
 

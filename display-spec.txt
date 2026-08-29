@@ -1,0 +1,16 @@
+Hardware & Output:
+
+Physical Display: SHARP TiVo 4K TV on HDMI-A-1 (DRM/KMS driven).
+
+Direct Console Access: Raw terminal writing directly to /dev/tty1 (and /dev/tty0).
+
+Autologin: Active on tty1.
+
+Available Rendering Engines Installed:
+
+Direct Terminal TUI: Python rich and textual installed for high-performance terminal dashboards.
+
+Lightweight Kiosk GUI: X11 (xserver-xorg, xinit), matchbox-window-manager, and chromium-browser ready to run fullscreen via xinit.
+
+Direct Framebuffer/DRM: fbset and kms++-utils available for direct hardware plane rendering.
+

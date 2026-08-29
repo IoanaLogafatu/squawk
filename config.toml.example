@@ -45,13 +45,21 @@ backend = "disk_drive"
 
 
 # ---------------------------------------------------------------------------
-# Processor
+# Processors (Independent Chains)
 # ---------------------------------------------------------------------------
 
-[processor]
+[processors.screen]
+enabled               = true
 poll_interval_seconds = 5
-modules               = ["closest_filter"]
+modules               = ["closest_filter", "tar1090_db", "adsbdb"]
 display               = "http"
+
+[processors.pushover]
+enabled               = false
+poll_interval_seconds = 5
+modules               = ["ground_distance_filter", "tar1090_db", "registration_filter", "adsbdb"]
+display               = "pushover"
+
 
 
 # ---------------------------------------------------------------------------

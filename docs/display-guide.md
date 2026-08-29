@@ -16,22 +16,24 @@ By convention, a display:
 
 None of this is enforced. A display that mutates the list or sits mid-chain will run; it just won't behave like the rest.
 
-## Position in the chain
+## Position in the pipeline
 
-Displays almost always come last. The usual pattern:
+Displays come at the end of each processor chain. You can define multiple independent processor chains with different displays and filters:
 
 ```toml
-[[processor.chain]]
-name = "route_enrichment"
+[processors.screen]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["tar1090_db", "adsbdb", "closest_filter"]
+display               = "epaper"
 
-[[processor.chain]]
-name = "closest_filter"      # reduce to one aircraft
-
-[[processor.chain]]
-name = "epaper_display"      # display whatever the filter left
+[processors.pushover]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["ground_distance_filter", "tar1090_db", "registration_filter", "adsbdb"]
+display               = "pushover"
 ```
 
-Stacking multiple displays in one chain works as expected — e-paper and HTTP simultaneously, both seeing the same one aircraft.
 
 ## Worked examples
 

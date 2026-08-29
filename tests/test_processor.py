@@ -134,3 +134,50 @@ def test_processor_loads_storage_backend(tmp_path):
 def test_processor_unknown_storage_raises(tmp_path):
     with pytest.raises(ValueError, match="Unknown storage method"):
         get_storage("oracle_db", tmp_path)
+
+
+# ===========================================================================
+# 5. Multiple independent processor chains
+# ===========================================================================
+
+def test_multiple_independent_processor_chains():
+    # Chain A: Filter for registration 'G-AAAA' and send to Sink A
+    # Chain B: Filter for registration 'G-BBBB' and send to Sink B
+    class RegFilter(BaseModule):
+        def __init__(self, target: str):
+            self.target = target
+        def process(self, aircraft):
+            return [a for a in aircraft if a.airframe.registration == self.target]
+
+    class CollectDisplay(BaseModule):
+        def __init__(self):
+            self.collected = []
+        def process(self, aircraft):
+            self.collected.extend([a.airframe.registration for a in aircraft])
+            return aircraft
+
+    sink_a = CollectDisplay()
+    sink_b = CollectDisplay()
+
+    chain_a = [RegFilter("G-AAAA"), sink_a]
+    chain_b = [RegFilter("G-BBBB"), sink_b]
+
+    a1 = _make_aircraft("111111")
+    a1.airframe.registration = "G-AAAA"
+    a2 = _make_aircraft("222222")
+    a2.airframe.registration = "G-BBBB"
+    source_aircraft = [a1, a2]
+
+    # Run chain A
+    res_a = source_aircraft
+    for m in chain_a:
+        res_a = m.process(res_a)
+
+    # Run chain B
+    res_b = source_aircraft
+    for m in chain_b:
+        res_b = m.process(res_b)
+
+    assert sink_a.collected == ["G-AAAA"]
+    assert sink_b.collected == ["G-BBBB"]
+

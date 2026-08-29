@@ -9,15 +9,15 @@ The whole system is built around modules. Want to track only aircraft within 20 
 ## Pipeline
 
 ```
-[ Ingestors ] → [ Storage ] → [ Processor ]→ [ Module Chain ] → [ Display ]
+[ Ingestors ] → [ Storage ] → [ Processors (Independent Chains) ] → [ Displays ]
 ```
 
 - **Ingestors** poll external sources (your tar1090 receiver, the bundled Concorde simulator, anything you write) and emit a `SquawkEnvelope` per cycle.
-- **Storage** persist envelopes through a pluggable storage backend.
-- **The processor** reads the current snapshot on its own schedule, runs the configured module chain, then hands the result to a display.
+- **Storage** persists envelopes through a pluggable storage backend.
+- **Processors** run independent chains on their own schedules (e.g. Pushover alerts, e-paper display), running their own module chains and handing results to their respective displays.
 - **Modules** filter or enrich. They all share one interface: `list[Aircraft] → list[Aircraft]`.
 
-Each ingestor runs on its own thread, so sources with different poll intervals don't block each other.
+Each ingestor and processor chain runs on its own background thread, so pipelines with different poll intervals or filter criteria don't block each other.
 
 ## Quick start
 
@@ -52,10 +52,18 @@ receivers = [
 ]
 poll_interval_seconds = 5
 
-[processor]
+[processors.screen]
+enabled               = true
 poll_interval_seconds = 5
 modules               = ["tar1090_db", "closest_filter"]
 display               = "http"
+
+[processors.pushover]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["ground_distance_filter", "tar1090_db", "registration_filter", "adsbdb"]
+display               = "pushover"
+
 
 [display.http]
 port = 7700

@@ -3,10 +3,10 @@
 This is a reference catalogue of every plugin shipping in this release: what it does, how it's configured, and where it sits in the pipeline.
 
 ```
-ingestor → storage ← processor (modules) → display
+ingestor → storage ← processors (independent chains) → displays
 ```
 
-**Ingestors** run independently in background threads and write to storage. **Modules** are the ordered chain the processor runs on every cycle (`processor.modules` in `config.toml`) — by convention these split into **filters** (reduce/reorder the list) and **enrichments** (fill in `UNKNOWN` fields). **Displays** are also modules mechanically, but get their own config key (`processor.display`) and are documented as a separate category since that's what most users will actually swap out.
+**Ingestors** run independently in background threads and write to storage. **Processors** define independent chains running in their own background threads (`[processors.<name>]` in `config.toml`). Each chain runs an ordered sequence of **modules** (filters and enrichments) and hands the resulting aircraft to its configured **display** (`display = "<name>"`).
 
 For the mechanics of writing a new one, see the **Modules Developer Guide** and **Display Modules Developer Guide**. This document is the "what's available" catalogue, not the "how to build one" guide.
 
@@ -66,12 +66,14 @@ enabled = true
 
 ## Modules
 
-Modules are the ordered chain named in `processor.modules`; each name maps to a `[modules.<name>]` config table (if it needs one). Every module shares one interface — `process(aircraft) -> aircraft` — so the distinction below is convention, not enforcement.
+Modules are the ordered chain named in `processors.<name>.modules`; each name maps to a `[modules.<name>]` config table (if it needs one). Every module shares one interface — `process(aircraft) -> aircraft` — so the distinction below is convention, not enforcement.
 
 ```toml
-[processor]
-modules = ["tar1090_db", "registration_filter", "adsbdb", "closest_filter"]
-display = "epaper"
+[processors.screen]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["tar1090_db", "registration_filter", "adsbdb", "closest_filter"]
+display               = "epaper"
 ```
 
 ### Filters
@@ -161,7 +163,8 @@ No configuration options.
 
 ## Displays
 
-Displays sit at (or near) the end of the chain, write the list somewhere a human can see, and return it unchanged. Only one is active at a time, set via `processor.display`, configured under `[display.<name>]`.
+Displays sit at (or near) the end of a processor chain, write the list somewhere a human can see, and return it unchanged. Each processor chain specifies its display target via `display = "<name>"` (configured under `[display.<name>]`).
+
 
 #### `console`
 

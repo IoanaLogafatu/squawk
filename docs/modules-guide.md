@@ -28,21 +28,18 @@ The list flowing down the chain is a single conversation. Each module sees what 
 
 ## Configuration
 
-The chain is an ordered list under `[[processor.chain]]` in `config.toml`. Order is meaningful:
+Processor chains are configured under `[processors.<name>]` in `config.toml`, with an ordered list of module names. Order is meaningful:
 
 ```toml
-[[processor.chain]]
-name = "route_enrichment"
-min_altitude_feet = 15000
-
-[[processor.chain]]
-name = "closest_filter"
-
-[[processor.chain]]
-name = "epaper_display"
+[processors.screen]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["tar1090_db", "adsbdb", "closest_filter"]
+display               = "epaper"
 ```
 
-Each table is one chain entry. Your factory receives the table as `cfg`.
+Each module's specific settings are defined under `[modules.<module_name>]`.
+
 
 ## Categories — what modules do
 

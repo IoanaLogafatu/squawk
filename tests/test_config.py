@@ -77,6 +77,11 @@ def test_config_receiver_names_are_non_empty():
 # 4. Processor modules and display
 # ===========================================================================
 
+def test_config_processors_dict_exists():
+    assert isinstance(config.processors, dict)
+    assert len(config.processors) > 0
+
+
 def test_config_processor_modules_is_list():
     assert isinstance(config.processor.modules, list)
 
@@ -92,3 +97,84 @@ def test_config_processor_display_is_string_or_none():
 
 def test_config_processor_poll_interval_is_positive():
     assert config.processor.poll_interval_seconds > 0
+
+
+def test_config_load_multiple_processors(tmp_path):
+    from config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("""
+[squawk]
+data_dir = "data"
+
+[observer]
+latitude = 50.0
+longitude = 0.0
+
+[storage]
+backend = "disk_drive"
+
+[processors.pushover]
+enabled = true
+poll_interval_seconds = 10
+modules = ["registration_filter", "adsbdb"]
+display = "pushover"
+
+[processors.screen]
+enabled = false
+poll_interval_seconds = 2
+modules = ["closest_filter"]
+display = "epaper"
+""")
+    loaded = load_config(cfg_file)
+    assert len(loaded.processors) == 2
+    assert "pushover" in loaded.processors
+    assert "screen" in loaded.processors
+
+    p_push = loaded.processors["pushover"]
+    assert p_push.name == "pushover"
+    assert p_push.enabled is True
+    assert p_push.poll_interval_seconds == 10
+    assert p_push.modules == ["registration_filter", "adsbdb"]
+    assert p_push.display == "pushover"
+
+    p_screen = loaded.processors["screen"]
+    assert p_screen.name == "screen"
+    assert p_screen.enabled is False
+    assert p_screen.poll_interval_seconds == 2
+    assert p_screen.modules == ["closest_filter"]
+    assert p_screen.display == "epaper"
+
+    # Single processor backward compatibility property returns enabled processor
+    assert loaded.processor == p_push
+
+
+def test_config_load_legacy_single_processor(tmp_path):
+    from config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("""
+[squawk]
+data_dir = "data"
+
+[observer]
+latitude = 50.0
+longitude = 0.0
+
+[storage]
+backend = "disk_drive"
+
+[processor]
+poll_interval_seconds = 3
+modules = ["closest_filter"]
+display = "http"
+""")
+    loaded = load_config(cfg_file)
+    assert len(loaded.processors) == 1
+    assert "default" in loaded.processors
+    p = loaded.processors["default"]
+    assert p.name == "default"
+    assert p.enabled is True
+    assert p.poll_interval_seconds == 3
+    assert p.modules == ["closest_filter"]
+    assert p.display == "http"
+    assert loaded.processor == p
+
