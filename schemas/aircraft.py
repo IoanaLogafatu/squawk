@@ -14,9 +14,6 @@ Sections:
     AircraftRoute    — the flight it is operating (callsign, squawk, origin/dest)
     Airframe         — the physical aircraft (registration, type, operator)
     AircraftRaw      — full unmodified source payload
-
-Envelope:
-    SquawkEnvelope   — one object per poll; contains all aircraft seen
 """
 
 from __future__ import annotations
@@ -28,20 +25,6 @@ from typing import Any, Optional
 
 # Sentinel — explicit alias so intent is clear throughout the codebase
 UNKNOWN = None
-
-
-# ---------------------------------------------------------------------------
-# Receiver status
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ReceiverStatus:
-    """Health of one receiver as recorded during a poll cycle."""
-
-    name:      str
-    healthy:   bool
-    last_seen: Optional[datetime] = UNKNOWN  # UTC time of last successful poll
-    error:     Optional[str]      = UNKNOWN  # Error message if unhealthy
 
 
 # ---------------------------------------------------------------------------
@@ -175,28 +158,6 @@ class Aircraft:
     route:     AircraftRoute
     airframe:  Airframe
     raw:       AircraftRaw
-
-
-# ---------------------------------------------------------------------------
-# Poll envelope
-# ---------------------------------------------------------------------------
-
-@dataclass
-class SquawkEnvelope:
-    """
-    One object per poll cycle from one ingestor.
-    The ingestor is responsible for merging data from multiple receivers
-    before emitting this envelope. Downstream modules treat this as a single
-    authoritative snapshot. Each aircraft's AircraftMeta.ingestor identifies
-    the source; AircraftMeta.observed_at is the storage merge key.
-    """
-
-    source:          str                      # Ingestor identity, e.g. "PersonalADSB"
-    timestamp:       datetime                 # UTC time this poll completed
-    aircraft_count:  int                      # Convenience field — len(aircraft)
-
-    receiver_status: list[ReceiverStatus] = field(default_factory=list)
-    aircraft:        list[Aircraft]       = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ pytest tests for the PersonalADSB ingestor.
 Covers:
   1. Merge logic  (_merge_snapshots)
   2. Converter    (convert_aircraft)
-  3. Schema contract (every envelope output is valid)
+  3. Schema contract (every aircraft output is valid)
   4. Edge case    (407e82 data quality note)
   5. JSON serialisation (SquawkEncoder round trip)
 
@@ -15,13 +15,13 @@ No network calls. Fixtures from tests/fixtures/adsb1.json and adsb2.json.
 
 import json
 from dataclasses import fields as dc_fields
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from ingestor.personal_adsb.converter import convert_aircraft
-from ingestor.personal_adsb.ingestor import _build_envelope, _merge_snapshots
+from ingestor.personal_adsb.ingestor import _build_aircraft, _merge_snapshots
 from schemas.encoder import SquawkEncoder
 from schemas.aircraft import (
     UNKNOWN,
@@ -30,7 +30,6 @@ from schemas.aircraft import (
     AircraftRoute,
     AircraftVector,
     Airframe,
-    ReceiverStatus,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -70,16 +69,12 @@ def merged_by_hex(merged_records):
 
 
 @pytest.fixture(scope="module")
-def envelope(snap1, snap2):
+def aircraft(snap1, snap2):
     merged = _merge_snapshots([
         ("receiver1", snap1),
         ("receiver2", snap2),
     ])
-    status = [
-        ReceiverStatus(name="receiver1", healthy=True,  last_seen=datetime.now(timezone.utc)),
-        ReceiverStatus(name="receiver2", healthy=False, last_seen=None, error="Connection refused"),
-    ]
-    return _build_envelope(merged, status)
+    return _build_aircraft(merged)
 
 
 def _find_raw(snapshot: dict, hex_id: str) -> dict:
@@ -195,41 +190,34 @@ def test_alt_baro_ground():
 
 
 # ===========================================================================
-# 3. Contract tests — every envelope output is schema-valid
+# 3. Contract tests — every aircraft output is schema-valid
 # ===========================================================================
 
-def test_envelope_source(envelope):
-    assert envelope.source == "PersonalADSB"
-
-
-def test_envelope_aircraft_count_matches_list(envelope):
-    assert envelope.aircraft_count == len(envelope.aircraft)
-
-
-def test_envelope_timestamp_is_timezone_aware(envelope):
-    assert isinstance(envelope.timestamp, datetime)
-    assert envelope.timestamp.tzinfo is not None
-
-
-def test_all_aircraft_meta_icao_hex_nonempty(envelope):
-    for ac in envelope.aircraft:
+def test_all_aircraft_meta_icao_hex_nonempty(aircraft):
+    for ac in aircraft:
         assert isinstance(ac.meta.icao_hex, str) and ac.meta.icao_hex
 
 
-def test_all_aircraft_meta_ingestor(envelope):
-    for ac in envelope.aircraft:
+def test_all_aircraft_meta_ingestor(aircraft):
+    for ac in aircraft:
         assert ac.meta.ingestor == "personal_adsb"
 
 
-def test_all_aircraft_meta_reception_type_string_or_none(envelope):
-    for ac in envelope.aircraft:
+def test_all_aircraft_meta_observed_at_is_timezone_aware(aircraft):
+    for ac in aircraft:
+        assert isinstance(ac.meta.observed_at, datetime)
+        assert ac.meta.observed_at.tzinfo is not None
+
+
+def test_all_aircraft_meta_reception_type_string_or_none(aircraft):
+    for ac in aircraft:
         rtype = ac.meta.reception_type
         assert rtype is None or isinstance(rtype, str), \
             f"{ac.meta.icao_hex}: reception_type={rtype!r}"
 
 
-def test_all_aircraft_sections_present(envelope):
-    for ac in envelope.aircraft:
+def test_all_aircraft_sections_present(aircraft):
+    for ac in aircraft:
         assert ac.location is not None
         assert ac.direction is not None
         assert ac.route is not None
@@ -237,40 +225,25 @@ def test_all_aircraft_sections_present(envelope):
         assert ac.raw is not None
 
 
-def test_all_aircraft_seen_seconds_is_float(envelope):
-    for ac in envelope.aircraft:
+def test_all_aircraft_seen_seconds_is_float(aircraft):
+    for ac in aircraft:
         assert isinstance(ac.location.seen_seconds, float), \
             f"{ac.meta.icao_hex}: seen_seconds={ac.location.seen_seconds!r}"
 
 
-def test_all_aircraft_no_extra_fields(envelope):
+def test_all_aircraft_no_extra_fields(aircraft):
     expected_meta      = {f.name for f in dc_fields(AircraftMeta)}
     expected_location  = {f.name for f in dc_fields(AircraftLocation)}
     expected_direction = {f.name for f in dc_fields(AircraftVector)}
     expected_route     = {f.name for f in dc_fields(AircraftRoute)}
     expected_airframe  = {f.name for f in dc_fields(Airframe)}
 
-    for ac in envelope.aircraft:
+    for ac in aircraft:
         assert set(vars(ac.meta))      == expected_meta,      ac.meta.icao_hex
         assert set(vars(ac.location))  == expected_location,  ac.meta.icao_hex
         assert set(vars(ac.direction)) == expected_direction, ac.meta.icao_hex
         assert set(vars(ac.route))     == expected_route,     ac.meta.icao_hex
         assert set(vars(ac.airframe))  == expected_airframe,  ac.meta.icao_hex
-
-
-def test_receiver_status_is_list(envelope):
-    assert isinstance(envelope.receiver_status, list)
-
-
-def test_receiver_status_entries(envelope):
-    for rs in envelope.receiver_status:
-        assert isinstance(rs.name, str) and rs.name
-        assert isinstance(rs.healthy, bool)
-        if rs.healthy:
-            assert isinstance(rs.last_seen, datetime) and rs.last_seen.tzinfo is not None
-        else:
-            assert rs.last_seen is None
-        assert rs.error is None or isinstance(rs.error, str)
 
 
 # ===========================================================================
@@ -290,11 +263,10 @@ def test_407e82_mode_s_wins_over_adsb_icao(merged_by_hex):
 # 5. JSON serialisation — SquawkEncoder round trip
 # ===========================================================================
 
-def test_json_round_trip(envelope):
-    serialised = json.dumps(envelope, cls=SquawkEncoder)
+def test_json_round_trip(aircraft):
+    ac = aircraft[0]
+    serialised = json.dumps(ac, cls=SquawkEncoder)
     data = json.loads(serialised)
 
-    assert data["source"] == envelope.source
-    assert data["aircraft_count"] == envelope.aircraft_count
-    assert datetime.fromisoformat(data["timestamp"]) == envelope.timestamp
-    assert isinstance(data["receiver_status"], list)
+    assert data["meta"]["icao_hex"] == ac.meta.icao_hex
+    assert datetime.fromisoformat(data["meta"]["observed_at"]) == ac.meta.observed_at

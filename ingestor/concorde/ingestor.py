@@ -33,8 +33,6 @@ from schemas.aircraft import (
     AircraftRoute,
     AircraftVector,
     Airframe,
-    ReceiverStatus,
-    SquawkEnvelope,
 )
 
 # ---------------------------------------------------------------------------
@@ -185,10 +183,10 @@ def _pass_complete(state: dict, observer_lat: float, observer_lon: float) -> boo
 
 
 # ---------------------------------------------------------------------------
-# Build envelope
+# Build aircraft
 # ---------------------------------------------------------------------------
 
-def _build_envelope(lat: float, lon: float, distance_nm: float, track: float) -> SquawkEnvelope:
+def _build_aircraft(lat: float, lon: float, distance_nm: float, track: float) -> Aircraft:
 
     meta = AircraftMeta(
         icao_hex       = ICAO_HEX,
@@ -225,26 +223,13 @@ def _build_envelope(lat: float, lon: float, distance_nm: float, track: float) ->
         operator      = OPERATOR,
     )
 
-    aircraft = Aircraft(
+    return Aircraft(
         meta      = meta,
         location  = location,
         direction = direction,
         route     = route,
         airframe  = airframe,
         raw       = AircraftRaw(payload={}),
-    )
-
-    return SquawkEnvelope(
-        source          = SOURCE_NAME,
-        timestamp       = datetime.now(timezone.utc),
-        aircraft_count  = 1,
-        receiver_status = [ReceiverStatus(
-            name      = "concorde",
-            healthy   = True,
-            last_seen = datetime.now(timezone.utc),
-            error     = UNKNOWN,
-        )],
-        aircraft        = [aircraft],
     )
 
 
@@ -283,8 +268,8 @@ def run() -> None:
         distance  = _distance_nm(observer_lat, observer_lon, lat, lon)
         track     = state["travel_bearing"]
 
-        envelope = _build_envelope(lat, lon, distance, track)
-        storage.save_aircraft_array(envelope.aircraft)
+        aircraft = _build_aircraft(lat, lon, distance, track)
+        storage.save_aircraft_array([aircraft])
 
         sleep_for = max(0.0, POLL_INTERVAL - (time.time() - cycle_start))
         time.sleep(sleep_for)

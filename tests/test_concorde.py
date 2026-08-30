@@ -7,7 +7,7 @@ Covers:
   1. Geometry helpers  (_destination, _distance_nm, _bearing_to)
   2. Pass completion   (_pass_complete)
   3. Position          (_current_position)
-  4. Envelope contract (_build_envelope)
+  4. Aircraft contract (_build_aircraft)
   5. New state         (_new_pass)
 
 No file I/O, no network calls, no config dependency.
@@ -24,7 +24,7 @@ from ingestor.concorde.ingestor import (
     PASS_RANGE_NM,
     SPEED_KNOTS,
     _bearing_to,
-    _build_envelope,
+    _build_aircraft,
     _current_position,
     _destination,
     _distance_nm,
@@ -57,12 +57,12 @@ def _state(start_offset_seconds: float = 0.0) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Envelope fixture
+# Aircraft fixture
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def envelope():
-    return _build_envelope(lat=OBS_LAT, lon=OBS_LON, distance_nm=0.0, track=0.0)
+def aircraft():
+    return _build_aircraft(lat=OBS_LAT, lon=OBS_LON, distance_nm=0.0, track=0.0)
 
 
 # ===========================================================================
@@ -142,65 +142,39 @@ def test_position_at_100nm_is_past_observer():
 
 
 # ===========================================================================
-# 4. Envelope contract
+# 4. Aircraft contract
 # ===========================================================================
 
-def test_envelope_meta(envelope):
-    ac = envelope.aircraft[0]
-    assert ac.meta.icao_hex == "400F6A"
-    assert ac.meta.ingestor == "concorde"
-    assert ac.meta.reception_type == "adsb_icao"
+def test_envelope_meta(aircraft):
+    assert aircraft.meta.icao_hex == "400F6A"
+    assert aircraft.meta.ingestor == "concorde"
+    assert aircraft.meta.reception_type == "adsb_icao"
 
 
-def test_envelope_route(envelope):
-    assert envelope.aircraft[0].route.callsign == "SPEEDBIRD002"
+def test_envelope_route(aircraft):
+    assert aircraft.route.callsign == "SPEEDBIRD002"
 
 
-def test_envelope_airframe(envelope):
-    ac = envelope.aircraft[0]
-    assert ac.airframe.registration == "G-BOAC"
-    assert ac.airframe.operator == "British Airways"
-    assert ac.airframe.aircraft_type == "Concorde"
+def test_envelope_airframe(aircraft):
+    assert aircraft.airframe.registration == "G-BOAC"
+    assert aircraft.airframe.operator == "British Airways"
+    assert aircraft.airframe.aircraft_type == "Concorde"
 
 
-def test_envelope_location_and_direction(envelope):
-    loc = envelope.aircraft[0].location
-    vec = envelope.aircraft[0].direction
+def test_envelope_location_and_direction(aircraft):
+    loc = aircraft.location
+    vec = aircraft.direction
     assert loc.altitude_feet == 5000
     assert loc.seen_seconds == 0.0
     assert vec.ground_speed_knots == 300.0
     assert vec.vertical_rate_fpm == 0
 
 
-def test_envelope_source(envelope):
-    assert envelope.source == "Concorde"
-
-
-def test_envelope_aircraft_count(envelope):
-    assert envelope.aircraft_count == 1
-
-
-def test_envelope_timestamp_is_timezone_aware(envelope):
-    assert isinstance(envelope.timestamp, datetime)
-    assert envelope.timestamp.tzinfo is not None
-
-
-def test_envelope_receiver_status(envelope):
-    assert len(envelope.receiver_status) == 1
-    rs = envelope.receiver_status[0]
-    assert rs.name == "concorde"
-    assert rs.healthy is True
-    assert isinstance(rs.last_seen, datetime) and rs.last_seen.tzinfo is not None
-    assert rs.error is None
-
-
-def test_envelope_json_round_trip(envelope):
-    serialised = json.dumps(envelope, cls=SquawkEncoder)
+def test_envelope_json_round_trip(aircraft):
+    serialised = json.dumps(aircraft, cls=SquawkEncoder)
     data = json.loads(serialised)
-    assert data["source"] == envelope.source
-    assert data["aircraft_count"] == envelope.aircraft_count
-    assert datetime.fromisoformat(data["timestamp"]) == envelope.timestamp
-    assert isinstance(data["receiver_status"], list)
+    assert data["meta"]["icao_hex"] == aircraft.meta.icao_hex
+    assert datetime.fromisoformat(data["meta"]["observed_at"]) == aircraft.meta.observed_at
 
 
 # ===========================================================================

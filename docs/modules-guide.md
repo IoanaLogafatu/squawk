@@ -156,7 +156,7 @@ Today, getting the order right is the configurer's responsibility. A planned **d
 ## Writing your own — checklist
 
 1. **Subclass `BaseModule`** and implement `process(aircraft)`.
-2. **Add the factory:** `def get(cfg: dict) -> YourPlugin`.
+2. **Add the factory:** `def get(cfg: dict) -> YourModule`.
 3. **Always return a list.** Empty if needed. Never `None`.
 4. **Guard `UNKNOWN`.** Any field on any aircraft can be `None`. Plan accordingly.
 5. **Document your category.** A docstring saying "this is a filter / enrichment / display" helps the next person reading config.

@@ -72,7 +72,7 @@ Modules are the ordered chain named in `processors.<name>.modules`; each name ma
 [processors.screen]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["tar1090_db", "registration_filter", "adsbdb", "closest_filter"]
+modules               = ["tar1090_db", "registration_filter", "closest_filter", "adsbdb"]
 display               = "epaper"
 ```
 

@@ -2,8 +2,9 @@
 modules/registration_filter.py
 
 Processor module that filters aircraft matching a configured list of target registrations.
-Requires an upstream enrichment (such as tar1090_db) that populates airframe.registration
-if the raw feed only provides ICAO hex.
+Registration normally arrives from ingest-time enrichment, so this filter can sit anywhere
+in a chain. If an installation runs tar1090_db in the chain instead, it must sit ahead of
+this filter.
 """
 
 from __future__ import annotations

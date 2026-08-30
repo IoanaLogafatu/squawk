@@ -40,7 +40,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 # The fixture file mirrors a real adsbdb HTTP response.
 _FULL_API_RESPONSE = json.loads((FIXTURES / "4D2387 response.json").read_text())
-# The plugin stores / applies only the inner "response" object.
+# The module stores / applies only the inner "response" object.
 _API_INNER = _FULL_API_RESPONSE["response"]
 
 

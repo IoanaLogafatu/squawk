@@ -3,12 +3,12 @@ ingestor/personal_adsb/ingestor.py
 
 PersonalADSB ingestor — polls one or more readsb/tar1090 receivers,
 merges their snapshots (most recently observed per ICAO hex wins), converts
-each aircraft record into the Squawk schema, and emits a SquawkEnvelope
-to all enabled repositories.
+each aircraft record into the Squawk schema, and writes the resulting
+Aircraft objects to storage.
 
 This ingestor represents a single logical source — a personal ADS-B
 installation, potentially with multiple antennas/receivers for all-round
-coverage. The envelope presents one unified view keyed by observed_at.
+coverage. The merge presents one unified view keyed by observed_at.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import requests
 
 from config import config
 from ingestor.personal_adsb.converter import convert_aircraft
-from schemas.aircraft import Aircraft, ReceiverStatus, SquawkEnvelope
+from schemas.aircraft import Aircraft
 
 SOURCE_NAME = "PersonalADSB"
 
@@ -85,31 +85,20 @@ def _merge_snapshots(snapshots: list[tuple[str, dict]]) -> list[tuple[dict, date
 
 
 # ---------------------------------------------------------------------------
-# Build envelope
+# Build aircraft
 # ---------------------------------------------------------------------------
 
-def _build_envelope(
-    merged: list[tuple[dict, datetime]],
-    receiver_status: list[ReceiverStatus],
-) -> SquawkEnvelope:
+def _build_aircraft(merged: list[tuple[dict, datetime]]) -> list[Aircraft]:
     """
-    Convert merged raw records into a SquawkEnvelope.
+    Convert merged raw records into Aircraft objects.
     Malformed records (no ICAO hex) are silently dropped by the converter.
     """
     aircraft: list[Aircraft] = []
-
     for raw_record, observed_at in merged:
         converted = convert_aircraft(raw_record, observed_at=observed_at)
         if converted is not None:
             aircraft.append(converted)
-
-    return SquawkEnvelope(
-        source          = SOURCE_NAME,
-        timestamp       = datetime.now(timezone.utc),
-        aircraft_count  = len(aircraft),
-        receiver_status = receiver_status,
-        aircraft        = aircraft,
-    )
+    return aircraft
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +108,7 @@ def _build_envelope(
 def run() -> None:
     """
     Main poll loop. Runs until interrupted.
-    Reads configuration from config and dispatches each envelope
-    to all enabled repositories.
+    Reads configuration from config and writes Aircraft records to storage.
     """
     cfg = config.ingestors.get("personal_adsb", {})
 
@@ -135,38 +123,32 @@ def run() -> None:
     ingest_modules = get_ingest_modules(cfg)
 
     last_seen: dict[str, datetime] = {}  # persists across poll cycles
+    healthy:   dict[str, bool]     = {}  # persists across poll cycles
 
     while True:
         cycle_start = time.time()
 
-        # Fetch from all receivers, recording health for each
-        snapshots:       list[tuple[str, dict]]  = []
-        receiver_status: list[ReceiverStatus]    = []
+        # Fetch from all receivers, logging health transitions only
+        snapshots: list[tuple[str, dict]] = []
 
         for receiver in cfg.get("receivers", []):
+            name = receiver["name"]
             snapshot, err = _fetch_snapshot(receiver["url"], timeout=cfg.get("timeout_seconds", 3))
             if snapshot is not None:
-                now = datetime.now(timezone.utc)
-                last_seen[receiver["name"]] = now
-                receiver_status.append(ReceiverStatus(
-                    name      = receiver["name"],
-                    healthy   = True,
-                    last_seen = now,
-                ))
-                snapshots.append((receiver["name"], snapshot))
+                if healthy.get(name) is False:
+                    print(f"{SOURCE_NAME}: {name} recovered")
+                healthy[name] = True
+                last_seen[name] = datetime.now(timezone.utc)
+                snapshots.append((name, snapshot))
             else:
-                receiver_status.append(ReceiverStatus(
-                    name      = receiver["name"],
-                    healthy   = False,
-                    last_seen = last_seen.get(receiver["name"]),
-                    error     = err,
-                ))
+                if healthy.get(name) is not False:
+                    print(f"{SOURCE_NAME}: {name} unreachable — {err}")
+                healthy[name] = False
 
         if snapshots:
             merged   = _merge_snapshots(snapshots)
-            envelope = _build_envelope(merged, receiver_status)
+            aircraft = _build_aircraft(merged)
 
-            aircraft = envelope.aircraft
             for m in ingest_modules:
                 aircraft = m.process(aircraft)
 

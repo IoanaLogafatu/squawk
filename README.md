@@ -12,8 +12,8 @@ The whole system is built around modules. Want to track only aircraft within 20 
 [ Ingestors ] → [ Storage ] → [ Processors (Independent Chains) ] → [ Displays ]
 ```
 
-- **Ingestors** poll external sources (your tar1090 receiver, the bundled Concorde simulator, anything you write) and emit a `SquawkEnvelope` per cycle.
-- **Storage** persists envelopes through a pluggable storage backend.
+- **Ingestors** poll external sources (your tar1090 receiver, the bundled Concorde simulator, anything you write) and write `Aircraft` records to storage each cycle.
+- **Storage** persists aircraft records through a pluggable storage backend.
 - **Processors** run independent chains on their own schedules (e.g. Pushover alerts, e-paper display), running their own module chains and handing results to their respective displays.
 - **Modules** filter or enrich. They all share one interface: `list[Aircraft] → list[Aircraft]`.
 

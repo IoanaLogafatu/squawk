@@ -7,7 +7,7 @@ An ingestor is a self-contained module that connects to one data source, collect
 The main process launches each enabled ingestor in its own thread at startup and does not interact with them afterwards. Ingestors don't know about the processor, the display, or each other — they just keep storage current. The processor reads from storage whenever it needs data; it doesn't care which ingestor put it there.
 
 ```
-ingestor → storage ← processor → plugins → display
+ingestor → modules → storage ← processor chains (modules) → display
 ```
 
 ## Primary ingestors — flight data
@@ -81,7 +81,7 @@ The cycle compensates for fetch duration so polling cadence stays stable under v
 
 ## Error handling
 
-Network errors, timeouts, and malformed payloads are swallowed — a single failed fetch must not kill the loop. Failures surface through `ReceiverStatus` tracked in memory, not via exceptions.
+Network errors, timeouts, and malformed payloads are swallowed — a single failed fetch must not kill the loop. Failures surface through log lines on health transitions, not via exceptions.
 
 Records with no usable ICAO hex are dropped silently. The hex is the minimum viable identity; nothing downstream works without it.
 
@@ -101,7 +101,7 @@ Whether built by a converter or directly, every `Aircraft` populates the full sc
 | `airframe`  | | Registration, aircraft type, operator |
 | `raw`       | `payload` | Complete unmodified source record |
 
-Missing fields are set to `UNKNOWN` (`None`), signalling downstream plugins that enrichment may be needed. The converter never invents data; it never partially maps; it never silently coerces types beyond the documented transforms (e.g. `"ground"` → `0` for altitude).
+Missing fields are set to `UNKNOWN` (`None`), signalling downstream modules that enrichment may be needed. The converter never invents data; it never partially maps; it never silently coerces types beyond the documented transforms (e.g. `"ground"` → `0` for altitude).
 
 ## `observed_at` — the merge key
 
@@ -115,7 +115,7 @@ For sources that don't provide a `seen_seconds` equivalent, use `datetime.now(ti
 
 ## Raw passthrough
 
-The `raw` layer is a complete safety net, not a curated selection. The full source payload is stored verbatim in `AircraftRaw.payload` — every field, including the ones the converter has already mapped into the schema. This lets future plugins consume source-specific fields (integrity values, RSSI, wind data, nav modes) without requiring a converter change.
+The `raw` layer is a complete safety net, not a curated selection. The full source payload is stored verbatim in `AircraftRaw.payload` — every field, including the ones the converter has already mapped into the schema. This lets future modules consume source-specific fields (integrity values, RSSI, wind data, nav modes) without requiring a converter change.
 
 ## Multi-receiver sources
 
@@ -125,4 +125,4 @@ The storage layer also applies an upsert-if-newer check on write, providing a se
 
 ## Quirks documentation
 
-Every primary ingestor documents the rough edges of its source in its module docstring: missing fields, polymorphic types, unit conventions, staleness, quota behaviour. A field the source never provides should be called out so plugin authors don't waste time wondering why it's always `UNKNOWN`.
+Every primary ingestor documents the rough edges of its source in its module docstring: missing fields, polymorphic types, unit conventions, staleness, quota behaviour. A field the source never provides should be called out so module authors don't waste time wondering why it's always `UNKNOWN`.
