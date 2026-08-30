@@ -148,6 +148,39 @@ display = "epaper"
     assert loaded.processor == p_push
 
 
+def test_config_ignores_legacy_panel_keys(tmp_path):
+    # `panel` / `panel_title` used to live on ProcessorConfig; they have been
+    # replaced by [display.http.panels.<chain>] blocks. Old configs that still
+    # carry the removed keys should load without raising.
+    from config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("""
+[squawk]
+data_dir = "data"
+
+[observer]
+latitude = 50.0
+longitude = 0.0
+
+[storage]
+backend = "disk_drive"
+
+[processors.legacy_chain]
+enabled = true
+poll_interval_seconds = 5
+modules = ["closest_filter"]
+display = "http"
+panel = "legacy_chain"
+panel_title = "Legacy Panel"
+""")
+    loaded = load_config(cfg_file)
+    p = loaded.processors["legacy_chain"]
+    assert p.name == "legacy_chain"
+    assert p.display == "http"
+    assert not hasattr(p, "panel")
+    assert not hasattr(p, "panel_title")
+
+
 def test_config_load_legacy_single_processor(tmp_path):
     from config import load_config
     cfg_file = tmp_path / "config.toml"

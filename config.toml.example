@@ -56,32 +56,24 @@ enabled               = true
 poll_interval_seconds = 5
 modules               = ["low_altitude", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "low_level"
-panel_title           = "Approach & Low (< 5k ft)"
 
 [processors.mid_level]
 enabled               = true
 poll_interval_seconds = 5
 modules               = ["mid_altitude", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "mid_level"
-panel_title           = "Mid Level (5k–15k ft)"
 
 [processors.upper_level]
 enabled               = true
 poll_interval_seconds = 5
 modules               = ["upper_altitude", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "upper_level"
-panel_title           = "Upper Level (15k–25k ft)"
 
 [processors.high_cruise]
 enabled               = true
 poll_interval_seconds = 5
 modules               = ["high_altitude", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "high_cruise"
-panel_title           = "High Cruise (> 25k ft)"
 
 # --- Row 2: Special Targets ---
 
@@ -90,32 +82,24 @@ enabled               = true
 poll_interval_seconds = 5
 modules               = ["near_distance", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "closest_overhead"
-panel_title           = "Nearby (< 10 nm)"
 
 [processors.watchlist]
 enabled               = true
 poll_interval_seconds = 5
 modules               = ["registration_filter", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "watchlist"
-panel_title           = "Watchlist Target"
 
 [processors.descending]
 enabled               = true
 poll_interval_seconds = 5
 modules               = ["descending_filter", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "descending"
-panel_title           = "Inbound / Descending"
 
 [processors.climbing]
 enabled               = true
 poll_interval_seconds = 5
 modules               = ["climbing_filter", "closest_filter", "adsbdb"]
 display               = "http"
-panel                 = "climbing"
-panel_title           = "Outbound / Climbing"
 
 
 # --- Notifications ---
@@ -199,6 +183,41 @@ cooldown_seconds = 7200                       # Cooldown per flight (hex + calls
 
 [display.http]
 port = 7700                              # HTTP port for the web display
+
+# Panels are keyed by processor chain name. A chain named [processors.low_level]
+# is matched to [display.http.panels.low_level]. Missing blocks fall back to a
+# title-cased chain name and order 999.
+[display.http.panels.low_level]
+title = "Approach & Low (< 5k ft)"
+order = 1
+
+[display.http.panels.mid_level]
+title = "Mid Level (5k–15k ft)"
+order = 2
+
+[display.http.panels.upper_level]
+title = "Upper Level (15k–25k ft)"
+order = 3
+
+[display.http.panels.high_cruise]
+title = "High Cruise (> 25k ft)"
+order = 4
+
+[display.http.panels.closest_overhead]
+title = "Nearby (< 10 nm)"
+order = 5
+
+[display.http.panels.watchlist]
+title = "Watchlist Target"
+order = 6
+
+[display.http.panels.descending]
+title = "Inbound / Descending"
+order = 7
+
+[display.http.panels.climbing]
+title = "Outbound / Climbing"
+order = 8
 
 [display.epaper]
 port               = 7700   # HTTP port for the PNG preview page

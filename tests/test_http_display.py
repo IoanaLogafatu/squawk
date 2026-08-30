@@ -6,7 +6,8 @@ Tests for the HTTP display module.
 Covers:
   1. Module contract — process() returns list unchanged
   2. HTTP server — page served, 404 for unknown paths
-  3. render_data — JSON output for each display field
+  3. Panel config — chain_name → title/order lookup, defaults, list payload
+  4. render_aircraft_dict — JSON output for each display field
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import urllib.request
 import pytest
 
 from display.http import HttpDisplay
-from display.http.server import render_data
+from display.http.server import render_aircraft_dict
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
@@ -72,13 +73,13 @@ def _get(url: str) -> tuple[int, str]:
 # ===========================================================================
 
 def test_http_display_returns_aircraft_unchanged():
-    display  = HttpDisplay({"port": _free_port()})
+    display  = HttpDisplay({"port": _free_port(), "chain_name": "t"})
     aircraft = [_make_aircraft()]
     assert display.process(aircraft) is aircraft
 
 
 def test_http_display_process_empty_list():
-    display = HttpDisplay({"port": _free_port()})
+    display = HttpDisplay({"port": _free_port(), "chain_name": "t"})
     assert display.process([]) == []
 
 
@@ -88,7 +89,7 @@ def test_http_display_process_empty_list():
 
 def test_http_display_serves_page():
     port = _free_port()
-    HttpDisplay({"port": port})
+    HttpDisplay({"port": port, "chain_name": "t"})
     time.sleep(0.05)
     status, body = _get(f"http://localhost:{port}/")
     assert status == 200
@@ -97,7 +98,7 @@ def test_http_display_serves_page():
 
 def test_http_display_page_has_sse_script():
     port = _free_port()
-    HttpDisplay({"port": port})
+    HttpDisplay({"port": port, "chain_name": "t"})
     time.sleep(0.05)
     _, body = _get(f"http://localhost:{port}/")
     assert "EventSource" in body
@@ -106,7 +107,7 @@ def test_http_display_page_has_sse_script():
 
 def test_http_display_404_for_unknown_path():
     port = _free_port()
-    HttpDisplay({"port": port})
+    HttpDisplay({"port": port, "chain_name": "t"})
     time.sleep(0.05)
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(f"http://localhost:{port}/unknown", timeout=2)
@@ -114,19 +115,25 @@ def test_http_display_404_for_unknown_path():
 
 
 def test_http_display_default_port_is_7700():
-    # Verify the default is documented correctly — not actually binding 7700
-    # in CI, just check the cfg path with an explicit port override.
     port    = _free_port()
-    display = HttpDisplay({"port": port})
+    display = HttpDisplay({"port": port, "chain_name": "t"})
     assert display is not None
 
 
+# ===========================================================================
+# 3. Panel config
+# ===========================================================================
+
 def test_http_display_multi_panel_updates():
     port = _free_port()
-    display_low = HttpDisplay({"port": port, "panel_id": "low_level", "panel_title": "Below 10k"})
-    display_high = HttpDisplay({"port": port, "panel_id": "high_level", "panel_title": "Above 10k"})
+    panels = {
+        "low_level":  {"title": "Below 10k",  "order": 1},
+        "high_level": {"title": "Above 10k", "order": 2},
+    }
+    display_low  = HttpDisplay({"port": port, "chain_name": "low_level",  "panels": panels})
+    display_high = HttpDisplay({"port": port, "chain_name": "high_level", "panels": panels})
 
-    a_low = _make_aircraft(hex_id="111111", registration="G-LOWW", altitude_feet=4000)
+    a_low  = _make_aircraft(hex_id="111111", registration="G-LOWW", altitude_feet=4000)
     a_high = _make_aircraft(hex_id="222222", registration="G-HIGH", altitude_feet=32000)
 
     display_low.process([a_low])
@@ -137,148 +144,164 @@ def test_http_display_multi_panel_updates():
     assert status == 200
     data = json.loads(body)
     assert "panels" in data
-    assert "low_level" in data["panels"]
-    assert "high_level" in data["panels"]
-    assert data["panels"]["low_level"]["aircraft"]["ident"] == "G-LOWW"
-    assert data["panels"]["high_level"]["aircraft"]["ident"] == "G-HIGH"
+    assert data["panels"]["low_level"]["aircraft"][0]["ident"]  == "G-LOWW"
+    assert data["panels"]["high_level"]["aircraft"][0]["ident"] == "G-HIGH"
 
+
+def test_http_display_reads_title_and_order_from_panel_config():
+    panels = {"low_level": {"title": "Approach & Low", "order": 1}}
+    display = HttpDisplay({"port": _free_port(), "chain_name": "low_level", "panels": panels})
+    assert display.panel_title == "Approach & Low"
+    assert display.panel_order == 1
+
+
+def test_http_display_missing_panel_block_falls_back(capsys):
+    display = HttpDisplay({"port": _free_port(), "chain_name": "some_new_chain", "panels": {}})
+    captured = capsys.readouterr()
+    assert display.panel_title == "Some New Chain"
+    assert display.panel_order == 999
+    assert "no panel config for chain 'some_new_chain'" in captured.out
+
+
+def test_http_display_payload_carries_full_aircraft_list():
+    port = _free_port()
+    display = HttpDisplay({"port": port, "chain_name": "list_chain", "panels": {}})
+    aircraft = [
+        _make_aircraft(hex_id="AAAA01", registration="REG-1"),
+        _make_aircraft(hex_id="AAAA02", registration="REG-2"),
+        _make_aircraft(hex_id="AAAA03", registration="REG-3"),
+    ]
+    display.process(aircraft)
+
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/api/status")
+    panel = json.loads(body)["panels"]["list_chain"]
+    assert panel["count"] == 3
+    assert len(panel["aircraft"]) == 3
+    assert [a["ident"] for a in panel["aircraft"]] == ["REG-1", "REG-2", "REG-3"]
+
+
+def test_http_display_empty_chain_is_empty_list_not_null():
+    port = _free_port()
+    display = HttpDisplay({"port": port, "chain_name": "empty_chain", "panels": {}})
+    display.process([])
+
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/api/status")
+    panel = json.loads(body)["panels"]["empty_chain"]
+    assert panel["count"] == 0
+    assert panel["aircraft"] == []
 
 
 # ===========================================================================
-# 3. render_data
+# 4. render_aircraft_dict
 # ===========================================================================
 
-def test_render_data_none_is_null():
-    assert render_data(None) == "null"
-
-
-def test_render_data_uses_registration():
-    a = _make_aircraft(registration="G-ABCD")
-    d = json.loads(render_data(a))
+def test_render_uses_registration():
+    d = render_aircraft_dict(_make_aircraft(registration="G-ABCD"))
     assert d["ident"] == "G-ABCD"
 
 
-def test_render_data_falls_back_to_callsign():
-    a = _make_aircraft(hex_id="AA1111", callsign="BAW123")
-    d = json.loads(render_data(a))
+def test_render_falls_back_to_callsign():
+    d = render_aircraft_dict(_make_aircraft(hex_id="AA1111", callsign="BAW123"))
     assert d["ident"] == "BAW123"
 
 
-def test_render_data_falls_back_to_icao_hex():
-    a = _make_aircraft(hex_id="AA1111")
-    d = json.loads(render_data(a))
+def test_render_falls_back_to_icao_hex():
+    d = render_aircraft_dict(_make_aircraft(hex_id="AA1111"))
     assert d["ident"] == "AA1111"
 
 
-def test_render_data_aircraft_type():
-    a = _make_aircraft(aircraft_type="BOEING 737-800")
-    d = json.loads(render_data(a))
+def test_render_aircraft_type():
+    d = render_aircraft_dict(_make_aircraft(aircraft_type="BOEING 737-800"))
     assert d["aircraft_type"] == "BOEING 737-800"
 
 
-def test_render_data_altitude_ground():
-    a = _make_aircraft(altitude_feet=0)
-    d = json.loads(render_data(a))
+def test_render_altitude_ground():
+    d = render_aircraft_dict(_make_aircraft(altitude_feet=0))
     assert d["altitude"] == "GND"
 
 
-def test_render_data_altitude_formatted():
-    a = _make_aircraft(altitude_feet=35000)
-    d = json.loads(render_data(a))
+def test_render_altitude_formatted():
+    d = render_aircraft_dict(_make_aircraft(altitude_feet=35000))
     assert d["altitude"] == "35,000 ft"
 
 
-def test_render_data_altitude_unknown():
-    a = _make_aircraft(altitude_feet=None)
-    d = json.loads(render_data(a))
+def test_render_altitude_unknown():
+    d = render_aircraft_dict(_make_aircraft(altitude_feet=None))
     assert d["altitude"] == "—"
 
 
-def test_render_data_distance_formatted():
-    a = _make_aircraft(distance_nm=12.345)
-    d = json.loads(render_data(a))
+def test_render_distance_formatted():
+    d = render_aircraft_dict(_make_aircraft(distance_nm=12.345))
     assert d["distance"] == "12.3 nm"
 
 
-def test_render_data_distance_with_cardinal():
-    a = _make_aircraft(distance_nm=5.0, bearing_degrees=45.0)  # NE
-    d = json.loads(render_data(a))
+def test_render_distance_with_cardinal():
+    d = render_aircraft_dict(_make_aircraft(distance_nm=5.0, bearing_degrees=45.0))
     assert d["distance"] == "5.0 nm NE"
 
 
-def test_render_data_distance_unknown():
-    a = _make_aircraft(distance_nm=None)
-    d = json.loads(render_data(a))
+def test_render_distance_unknown():
+    d = render_aircraft_dict(_make_aircraft(distance_nm=None))
     assert d["distance"] == "—"
 
 
-def test_render_data_operator_present():
-    a = _make_aircraft(operator="British Airways")
-    d = json.loads(render_data(a))
+def test_render_operator_present():
+    d = render_aircraft_dict(_make_aircraft(operator="British Airways"))
     assert d["operator"] == "British Airways"
 
 
-def test_render_data_operator_absent_is_null():
-    a = _make_aircraft(operator=None)
-    d = json.loads(render_data(a))
+def test_render_operator_absent_is_null():
+    d = render_aircraft_dict(_make_aircraft(operator=None))
     assert d["operator"] is None
 
 
-def test_render_data_climbing():
-    a = _make_aircraft(vertical_rate_fpm=512)
-    d = json.loads(render_data(a))
+def test_render_climbing():
+    d = render_aircraft_dict(_make_aircraft(vertical_rate_fpm=512))
     assert d["vrate"] == "↑"
 
 
-def test_render_data_descending():
-    a = _make_aircraft(vertical_rate_fpm=-512)
-    d = json.loads(render_data(a))
+def test_render_descending():
+    d = render_aircraft_dict(_make_aircraft(vertical_rate_fpm=-512))
     assert d["vrate"] == "↓"
 
 
-def test_render_data_level():
-    a = _make_aircraft(vertical_rate_fpm=0)
-    d = json.loads(render_data(a))
+def test_render_level():
+    d = render_aircraft_dict(_make_aircraft(vertical_rate_fpm=0))
     assert d["vrate"] == "—"
 
 
-def test_render_data_has_timestamp():
-    a = _make_aircraft()
-    d = json.loads(render_data(a))
+def test_render_has_timestamp():
+    d = render_aircraft_dict(_make_aircraft())
     assert "UTC" in d["timestamp"]
 
 
-def test_render_data_airline_present():
-    a = _make_aircraft(airline_name="Ryanair")
-    d = json.loads(render_data(a))
+def test_render_airline_present():
+    d = render_aircraft_dict(_make_aircraft(airline_name="Ryanair"))
     assert d["airline"] == "Ryanair"
 
 
-def test_render_data_airline_absent_is_null():
-    a = _make_aircraft(airline_name=None)
-    d = json.loads(render_data(a))
+def test_render_airline_absent_is_null():
+    d = render_aircraft_dict(_make_aircraft(airline_name=None))
     assert d["airline"] is None
 
 
-def test_render_data_route_both_iata():
-    a = _make_aircraft(origin_iata="REU", destination_iata="LBA")
-    d = json.loads(render_data(a))
+def test_render_route_both_iata():
+    d = render_aircraft_dict(_make_aircraft(origin_iata="REU", destination_iata="LBA"))
     assert d["route"] == "REU → LBA"
 
 
-def test_render_data_route_origin_only():
-    a = _make_aircraft(origin_iata="REU")
-    d = json.loads(render_data(a))
+def test_render_route_origin_only():
+    d = render_aircraft_dict(_make_aircraft(origin_iata="REU"))
     assert d["route"] == "REU → ?"
 
 
-def test_render_data_route_destination_only():
-    a = _make_aircraft(destination_iata="LBA")
-    d = json.loads(render_data(a))
+def test_render_route_destination_only():
+    d = render_aircraft_dict(_make_aircraft(destination_iata="LBA"))
     assert d["route"] == "? → LBA"
 
 
-def test_render_data_route_neither_is_null():
-    a = _make_aircraft()
-    d = json.loads(render_data(a))
+def test_render_route_neither_is_null():
+    d = render_aircraft_dict(_make_aircraft())
     assert d["route"] is None

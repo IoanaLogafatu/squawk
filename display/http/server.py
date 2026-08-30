@@ -35,10 +35,7 @@ def _cardinal(bearing: Optional[float]) -> Optional[str]:
 # Data renderers
 # ---------------------------------------------------------------------------
 
-def render_aircraft_dict(a: Optional[Aircraft]) -> Optional[dict]:
-    if a is None:
-        return None
-
+def render_aircraft_dict(a: Aircraft) -> dict:
     vr    = a.direction.vertical_rate_fpm or 0
     vrate = "↑" if vr > 200 else "↓" if vr < -200 else "—"
 
@@ -101,12 +98,6 @@ def render_aircraft_dict(a: Optional[Aircraft]) -> Optional[dict]:
     }
 
 
-def render_data(a: Optional[Aircraft]) -> str:
-    """Legacy single aircraft JSON string for backward compatibility."""
-    d = render_aircraft_dict(a)
-    return json.dumps(d) if d is not None else "null"
-
-
 # ---------------------------------------------------------------------------
 # Shared state — multi-panel hub
 # ---------------------------------------------------------------------------
@@ -117,16 +108,15 @@ class SharedState:
         self._lock = threading.Lock()
         self._subscribers: list[queue.Queue] = []
         self._panels: dict[str, dict] = {}
-        self._single_aircraft: Optional[Aircraft] = None
 
-    def update(self, panel_id: str, panel_title: str, aircraft: list[Aircraft]) -> None:
+    def update(self, panel_id: str, panel_title: str, panel_order: int,
+               aircraft: list[Aircraft]) -> None:
         with self._lock:
-            a = aircraft[0] if aircraft else None
-            self._single_aircraft = a
             self._panels[panel_id] = {
                 "panel_id":   panel_id,
                 "title":      panel_title,
-                "aircraft":   render_aircraft_dict(a),
+                "order":      panel_order,
+                "aircraft":   [render_aircraft_dict(a) for a in aircraft],
                 "count":      len(aircraft),
                 "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
             }
@@ -142,7 +132,6 @@ class SharedState:
     def _get_payload(self) -> str:
         return json.dumps({
             "panels":    self._panels,
-            "single":    render_aircraft_dict(self._single_aircraft),
             "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         })
 
@@ -650,7 +639,8 @@ updateClock();
 
 function renderCard(panel) {
   const title = esc(panel.title || panel.panel_id || 'TRAFFIC');
-  const a = panel.aircraft;
+  const list = panel.aircraft || [];
+  const a = list.length > 0 ? list[0] : null;
 
   if (!a) {
     return `
@@ -742,16 +732,13 @@ function renderState(state) {
   }
 
   const panels = state.panels || {};
-  const panelKeys = Object.keys(panels);
+  const panelKeys = Object.keys(panels).sort((a, b) => {
+    const d = (panels[a].order ?? 999) - (panels[b].order ?? 999);
+    return d !== 0 ? d : a.localeCompare(b);
+  });
 
   if (panelKeys.length === 0) {
-    if (state.single) {
-      dashboard.className = 'grid-1';
-      channelElem.textContent = '1 CHANNEL';
-      dashboard.innerHTML = renderCard({ title: 'Closest Aircraft', aircraft: state.single });
-    } else {
-      dashboard.innerHTML = '<div class="panel-card"><div class="empty-state"><div class="empty-icon">⎈</div><div class="empty-text">No traffic in range</div></div></div>';
-    }
+    dashboard.innerHTML = '<div class="panel-card"><div class="empty-state"><div class="empty-icon">⎈</div><div class="empty-text">No traffic in range</div></div></div>';
     return;
   }
 

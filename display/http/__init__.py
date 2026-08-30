@@ -7,6 +7,13 @@ Supports multiple processor chains feeding separate sections/panels simultaneous
 
 Configured via [display.http] in config.toml:
     port = 7700
+
+    [display.http.panels.<chain_name>]
+    title = "..."
+    order = 1
+
+Each chain is matched to a panel block by chain name. Missing panel blocks
+fall back to a title-cased chain name and order 999.
 """
 
 from __future__ import annotations
@@ -27,8 +34,15 @@ class HttpDisplay(BaseModule):
 
     def __init__(self, cfg: dict) -> None:
         port = int(cfg.get("port", 7700))
-        self.panel_id = str(cfg.get("panel_id", "default"))
-        self.panel_title = str(cfg.get("panel_title", "Live Traffic"))
+        self.chain_name = str(cfg.get("chain_name", "default"))
+
+        panels = cfg.get("panels", {}) or {}
+        panel_cfg = panels.get(self.chain_name)
+        if panel_cfg is None:
+            print(f"  http display: no panel config for chain {self.chain_name!r} — using defaults")
+            panel_cfg = {}
+        self.panel_title = str(panel_cfg.get("title", self.chain_name.replace("_", " ").title()))
+        self.panel_order = int(panel_cfg.get("order", 999))
 
         with _SERVER_LOCK:
             if port not in _SERVERS:
@@ -45,10 +59,9 @@ class HttpDisplay(BaseModule):
         self._state = state
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        self._state.update(self.panel_id, self.panel_title, aircraft)
+        self._state.update(self.chain_name, self.panel_title, self.panel_order, aircraft)
         return aircraft
 
 
 def get(cfg: dict) -> HttpDisplay:
     return HttpDisplay(cfg)
-

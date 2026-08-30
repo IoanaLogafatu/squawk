@@ -68,23 +68,46 @@ The HTTP display serves a live web page that auto-updates as new aircraft arrive
 ```python
 class HttpDisplay(BaseModule):
     def __init__(self, cfg: dict) -> None:
-        port        = int(cfg.get("port", 7700))
+        port            = int(cfg.get("port", 7700))
+        self.chain_name = str(cfg.get("chain_name", "default"))
+        panel_cfg       = (cfg.get("panels", {}) or {}).get(self.chain_name, {})
+        self.panel_title = str(panel_cfg.get("title", self.chain_name.replace("_", " ").title()))
+        self.panel_order = int(panel_cfg.get("order", 999))
         self._state = SharedState()
         server      = ThreadingHTTPServer(("", port), make_handler(self._state))
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        self._state.update(aircraft[0] if aircraft else None)
+        self._state.update(self.chain_name, self.panel_title, self.panel_order, aircraft)
         return aircraft
 ```
 
 The pattern: anything that needs to live outside the `process()` call — a server, a worker thread, a hardware handle — is built in `__init__` and stashed on `self`. `process()` pokes the shared state and returns immediately. The pipeline never blocks on an HTTP client.
 
+#### Panel configuration
+
+Each processor chain that renders to `http` gets its own card on the dashboard. Panels are keyed by chain name — a chain named `[processors.low_level]` picks up its panel block from `[display.http.panels.low_level]`:
+
+```toml
+[display.http]
+port = 7700
+
+[display.http.panels.low_level]
+title = "Approach & Low (< 5k ft)"
+order = 1
+
+[display.http.panels.mid_level]
+title = "Mid Level (5k–15k ft)"
+order = 2
+```
+
+Both `title` and `order` are optional. A chain with no matching block falls back to a title-cased chain name (`low_level` → `Low Level`) and order 999, so it lands at the end of the grid. A startup warning prints naming the chain so the omission is visible in the logs.
+
 Notable details:
 
 - `daemon=True` so the server thread dies when the pipeline shuts down.
 - `SharedState` is a small thread-safe pub/sub between the module thread (writer) and request handler threads (readers). HTTP clients are not the module's problem; they read from the shared state independently.
-- Passing `None` when the list is empty is part of the contract — the renderer downstream knows what to do with it.
+- The payload sends the full aircraft list per panel — an empty chain is an empty list, not `null`.
 
 ### epaper — hardware, with throttling
 

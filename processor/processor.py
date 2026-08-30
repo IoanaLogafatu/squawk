@@ -33,8 +33,7 @@ def run(proc_cfg: ProcessorConfig | None = None) -> None:
     module_cfgs = config.modules
     filters = [get_module(name, module_cfgs.get(name, {})) for name in cfg.modules]
     display_cfg = dict(config.display.get(cfg.display, {}))
-    display_cfg["panel_id"] = cfg.panel or cfg.name
-    display_cfg["panel_title"] = cfg.panel_title or cfg.name.replace("_", " ").title()
+    display_cfg["chain_name"] = cfg.name
     display = get_display(cfg.display, display_cfg) if cfg.display else None
 
     print(f"Processor chain [{cfg.name}] started: {len(filters)} modules -> display: {cfg.display or 'none'}")

@@ -51,8 +51,6 @@ class ProcessorConfig:
     modules:               list[str]  = field(default_factory=list) # Module names, applied in order
     display:               str | None = None    # Display module name
     enabled:               bool       = True    # Whether this processor chain is active
-    panel:                 str | None = None    # Panel identifier for UI displays
-    panel_title:           str | None = None    # Title for UI display panel
 
 
 
@@ -121,8 +119,6 @@ def _load_processors(raw: dict) -> dict[str, ProcessorConfig]:
                 poll_interval_seconds = p.get("poll_interval_seconds", 5),
                 modules               = p.get("modules", []),
                 display               = p.get("display"),
-                panel                 = p.get("panel"),
-                panel_title           = p.get("panel_title"),
             )
 
     # 2. Legacy single processor syntax: [processor]
@@ -135,8 +131,6 @@ def _load_processors(raw: dict) -> dict[str, ProcessorConfig]:
                 poll_interval_seconds = legacy_proc.get("poll_interval_seconds", 5),
                 modules               = legacy_proc.get("modules", []),
                 display               = legacy_proc.get("display"),
-                panel                 = legacy_proc.get("panel"),
-                panel_title           = legacy_proc.get("panel_title"),
             )
 
     return processors
