@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 def get_ingest_modules(cfg: dict) -> list[BaseModule]:
     """Build the modules named in an ingestor's config block.
 
+    Called by main.py, once per enabled ingestor, before that ingestor's
+    thread starts — a module that fails to construct then fails visibly at
+    startup rather than inside a daemon thread. Ingestors receive the
+    resulting list as an argument to run(); they do not call this themselves.
+
     These run against every aircraft before it enters storage, so they
     define what the whole installation can see — see docs/modules-guide.md.
     """

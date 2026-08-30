@@ -22,6 +22,7 @@ import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from config import config
 from schemas.aircraft import (
@@ -34,6 +35,9 @@ from schemas.aircraft import (
     AircraftVector,
     Airframe,
 )
+
+if TYPE_CHECKING:
+    from modules import BaseModule
 
 # ---------------------------------------------------------------------------
 # Concorde constants
@@ -237,7 +241,7 @@ def _build_aircraft(lat: float, lon: float, distance_nm: float, track: float) ->
 # Main loop
 # ---------------------------------------------------------------------------
 
-def run() -> None:
+def run(ingest_modules: list["BaseModule"]) -> None:
     cfg = config.ingestors.get("concorde", {})
 
     if not cfg.get("enabled", False):
@@ -268,15 +272,19 @@ def run() -> None:
         distance  = _distance_nm(observer_lat, observer_lon, lat, lon)
         track     = state["travel_bearing"]
 
-        aircraft = _build_aircraft(lat, lon, distance, track)
-        storage.save_aircraft_array([aircraft])
+        aircraft = [_build_aircraft(lat, lon, distance, track)]
+        for m in ingest_modules:
+            aircraft = m.process(aircraft)
+
+        storage.save_aircraft_array(aircraft)
 
         sleep_for = max(0.0, POLL_INTERVAL - (time.time() - cycle_start))
         time.sleep(sleep_for)
 
 
 if __name__ == "__main__":
+    from ingestor import get_ingest_modules
     try:
-        run()
+        run(get_ingest_modules(config.ingestors.get("concorde", {})))
     except KeyboardInterrupt:
         print("\nStopped.")

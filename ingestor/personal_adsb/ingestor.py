@@ -15,12 +15,16 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import requests
 
 from config import config
 from ingestor.personal_adsb.converter import convert_aircraft
 from schemas.aircraft import Aircraft
+
+if TYPE_CHECKING:
+    from modules import BaseModule
 
 SOURCE_NAME = "PersonalADSB"
 
@@ -105,7 +109,7 @@ def _build_aircraft(merged: list[tuple[dict, datetime]]) -> list[Aircraft]:
 # Main loop
 # ---------------------------------------------------------------------------
 
-def run() -> None:
+def run(ingest_modules: list["BaseModule"]) -> None:
     """
     Main poll loop. Runs until interrupted.
     Reads configuration from config and writes Aircraft records to storage.
@@ -118,9 +122,6 @@ def run() -> None:
 
     from storage import get_storage
     storage = get_storage(config.storage.method, config.squawk.data_dir)
-
-    from ingestor import get_ingest_modules
-    ingest_modules = get_ingest_modules(cfg)
 
     last_seen: dict[str, datetime] = {}  # persists across poll cycles
     healthy:   dict[str, bool]     = {}  # persists across poll cycles
@@ -160,7 +161,8 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    from ingestor import get_ingest_modules
     try:
-        run()
+        run(get_ingest_modules(config.ingestors.get("personal_adsb", {})))
     except KeyboardInterrupt:
         print("\nStopped.")

@@ -43,16 +43,29 @@ A `converter.py` is recommended when the source emits per-aircraft records in a 
 The `ingestor.py` module must expose:
 
 ```python
-SOURCE_NAME: str        # human-readable source identifier
-def run() -> None       # blocking main loop; runs until interrupted
+SOURCE_NAME: str                                    # human-readable source identifier
+def run(ingest_modules: list[BaseModule]) -> None   # blocking main loop; runs until interrupted
 ```
 
-`run()` is invoked in a dedicated thread at startup. It must:
+`run()` is invoked in a dedicated thread at startup, and receives a list of
+already-constructed modules — the ones named in `[ingestors.<key>].modules`. Apply them to
+your aircraft list immediately before saving:
+
+```python
+for m in ingest_modules:
+    aircraft = m.process(aircraft)
+storage.save_aircraft_array(aircraft)
+```
+
+The list may be empty. It is built by `main.py` via `get_ingest_modules()`; you do not call
+that yourself.
+
+`run()` must:
 
 1. Read its own config block from `config.ingestors[<key>]`.
 2. Return immediately if `enabled` is false.
 3. Resolve the storage backend once at startup via `get_storage(config.storage.method, config.squawk.data_dir)`.
-4. Loop until interrupted, converting source data into `Aircraft` objects and calling `storage.save_aircraft_array()` each cycle.
+4. Loop until interrupted, converting source data into `Aircraft` objects, applying `ingest_modules`, and calling `storage.save_aircraft_array()` each cycle.
 5. Tolerate `KeyboardInterrupt` cleanly when run as `__main__`.
 
 ## Configuration
@@ -74,8 +87,9 @@ Every cycle follows the same shape:
 1. Record `cycle_start = time.time()`.
 2. Fetch from the source.
 3. Convert raw records into `Aircraft` objects (one per unique ICAO hex).
-4. Call `storage.save_aircraft_array(aircraft_list)`.
-5. Sleep for `max(0, poll_interval_seconds - elapsed)`.
+4. Apply `ingest_modules`, in order.
+5. Call `storage.save_aircraft_array(aircraft_list)`.
+6. Sleep for `max(0, poll_interval_seconds - elapsed)`.
 
 The cycle compensates for fetch duration so polling cadence stays stable under variable network conditions. A slow fetch never causes a tight loop; a fast one never overshoots the configured interval.
 

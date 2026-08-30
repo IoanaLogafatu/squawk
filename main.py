@@ -14,9 +14,11 @@ Ingestors run until KeyboardInterrupt (Ctrl+C), at which point all
 threads are signalled to stop and the process exits cleanly.
 
 Adding a new ingestor:
-    1. Implement the ingestor in ingestor/<name>/ingestor.py with a run() function
+    1. Implement the ingestor in ingestor/<name>/ingestor.py with a
+       run(ingest_modules: list[BaseModule]) function
     2. Add a config section in config.toml
-    The ingestor will be discovered and started automatically.
+    The ingestor will be discovered and started automatically. main.py builds
+    the module list via get_ingest_modules(cfg) before starting the thread.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import importlib
 import threading
 
 from config import config
+from ingestor import get_ingest_modules
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +41,13 @@ def main() -> None:
         if not cfg.get("enabled", False):
             continue
         module = importlib.import_module(f"ingestor.{name}.ingestor")
-        thread = threading.Thread(target=module.run, name=name, daemon=True)
+        ingest_modules = get_ingest_modules(cfg)
+        thread = threading.Thread(
+            target=module.run,
+            args=(ingest_modules,),
+            name=name,
+            daemon=True,
+        )
         thread.start()
         threads.append(thread)
 

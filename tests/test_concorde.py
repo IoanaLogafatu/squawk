@@ -9,8 +9,9 @@ Covers:
   3. Position          (_current_position)
   4. Aircraft contract (_build_aircraft)
   5. New state         (_new_pass)
+  6. run() applies ingest modules (drives one poll cycle; file I/O via tmp_path)
 
-No file I/O, no network calls, no config dependency.
+Sections 1-5 use no file I/O, no network calls, no config dependency.
 """
 
 import json
@@ -202,3 +203,51 @@ def test_new_pass_start_time_is_valid_iso():
     state = _new_pass(OBS_LAT, OBS_LON)
     dt = datetime.fromisoformat(state["start_time"])
     assert dt.tzinfo is not None
+
+
+# ===========================================================================
+# 6. run() applies ingest modules
+# ===========================================================================
+
+def test_concorde_applies_ingest_modules(monkeypatch, tmp_path):
+    # Before brief-ingest-modules-injection.md, concorde's run() never applied
+    # any modules — this is the test that would have failed before that change.
+    from modules.pass_through import PassThrough
+    from ingestor.concorde import ingestor as concorde_ingestor
+    from storage.disk_drive import DiskDriveStorage
+
+    class _SpyPassThrough(PassThrough):
+        def __init__(self) -> None:
+            self.called = False
+
+        def process(self, aircraft):
+            self.called = True
+            return super().process(aircraft)
+
+    backend = DiskDriveStorage(tmp_path)
+
+    class _Observer:
+        latitude = OBS_LAT
+        longitude = OBS_LON
+
+    class _Cfg:
+        class squawk: data_dir = str(tmp_path)
+        class storage: method = "disk_drive"
+        observer = _Observer()
+        ingestors = {"concorde": {"enabled": True}}
+
+    monkeypatch.setattr(concorde_ingestor, "config", _Cfg)
+    monkeypatch.setattr("storage.get_storage", lambda method, data_dir: backend)
+
+    class _StopAfterOneCycle(Exception): ...
+    def _stop(_seconds):
+        raise _StopAfterOneCycle
+    monkeypatch.setattr(concorde_ingestor.time, "sleep", _stop)
+
+    spy = _SpyPassThrough()
+    with pytest.raises(_StopAfterOneCycle):
+        concorde_ingestor.run([spy])
+
+    assert spy.called
+    files = list((tmp_path / "tracked_aircraft").glob("*.json"))
+    assert len(files) == 1

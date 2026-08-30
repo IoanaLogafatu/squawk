@@ -6,6 +6,8 @@ Tests for ingest-time module wiring:
   2. modules run before storage (enrichment is baked into what's saved)
   3. an empty / missing modules list is a no-op
   4. a filter at ingest narrows what reaches storage
+  5. every ingestor's run() requires the ingest_modules argument — main.py
+     builds the list; an ingestor cannot silently skip it
 """
 
 from __future__ import annotations
@@ -93,7 +95,6 @@ def _run_one_cycle(monkeypatch, tmp_path, ingest_modules):
 
     monkeypatch.setattr(personal_ingestor, "config", _Cfg)
     monkeypatch.setattr("storage.get_storage", lambda method, data_dir: backend)
-    monkeypatch.setattr("ingestor.get_ingest_modules", lambda cfg: ingest_modules)
 
     monkeypatch.setattr(
         personal_ingestor,
@@ -108,7 +109,7 @@ def _run_one_cycle(monkeypatch, tmp_path, ingest_modules):
     monkeypatch.setattr(personal_ingestor.time, "sleep", _stop)
 
     with pytest.raises(_StopAfterOneCycle):
-        personal_ingestor.run()
+        personal_ingestor.run(ingest_modules)
 
     return backend
 
@@ -150,3 +151,36 @@ def test_ingest_filter_narrows_storage(monkeypatch, tmp_path):
 
     stored = sorted(p.stem for p in (tmp_path / "tracked_aircraft").glob("*.json"))
     assert stored == ["AAAA01"]
+
+
+# ---------------------------------------------------------------------------
+# 5. run() requires ingest_modules — nothing can quietly skip it
+# ---------------------------------------------------------------------------
+
+def test_personal_adsb_run_requires_ingest_modules():
+    with pytest.raises(TypeError):
+        personal_ingestor.run()
+
+
+def test_concorde_run_requires_ingest_modules():
+    from ingestor.concorde import ingestor as concorde_ingestor
+    with pytest.raises(TypeError):
+        concorde_ingestor.run()
+
+
+def test_every_ingestor_run_accepts_ingest_modules():
+    # Same shape as the KEYS and ctx contract tests: this catches the next
+    # ingestor added with a no-argument run(), which is exactly the shape of
+    # bug this brief fixes (concorde silently skipping its modules).
+    import importlib
+    import inspect
+    import pkgutil
+
+    import ingestor as ingestor_pkg
+
+    for info in pkgutil.iter_modules(ingestor_pkg.__path__):
+        mod = importlib.import_module(f"ingestor.{info.name}.ingestor")
+        sig = inspect.signature(mod.run)
+        assert len(sig.parameters) >= 1, \
+            f"ingestor/{info.name}/ingestor.py's run() takes no parameters — " \
+            "it must accept ingest_modules"
