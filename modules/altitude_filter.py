@@ -8,7 +8,7 @@ supporting selection of altitude source (alt_baro or alt_geom) and fallback beha
 from __future__ import annotations
 
 from typing import Any, Optional
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -81,7 +81,7 @@ class AltitudeFilter(BaseModule):
 KEYS = {"type", "above", "below", "altitude_source", "fallback"}
 
 
-def get(cfg: dict) -> AltitudeFilter:
+def get(cfg: dict, ctx: ModuleContext) -> AltitudeFilter:
     above = cfg.get("above")
     below = cfg.get("below")
     altitude_source = cfg.get("altitude_source", "alt_baro")

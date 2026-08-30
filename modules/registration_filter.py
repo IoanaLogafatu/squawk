@@ -9,7 +9,7 @@ this filter.
 
 from __future__ import annotations
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -40,7 +40,7 @@ class RegistrationFilter(BaseModule):
 KEYS = {"type", "registrations"}
 
 
-def get(cfg: dict) -> RegistrationFilter:
+def get(cfg: dict, ctx: ModuleContext) -> RegistrationFilter:
     target_registrations = cfg.get("registrations", [])
     return RegistrationFilter(target_registrations=target_registrations)
 

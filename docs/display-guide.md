@@ -126,7 +126,12 @@ Hardware caveat for systemd on the Pi: the service user must be in the `spi`, `g
 ## Writing your own — checklist
 
 1. **Subclass `BaseModule`** and implement `process(aircraft) -> aircraft`.
-2. **Add the factory:** `def get(cfg: dict) -> YourDisplay`.
+2. **Add the factory:** `def get(cfg: dict, ctx: ModuleContext) -> YourDisplay`.
+2a. **Use `ctx`, not global config.** `ctx.module_dir` (`<data_dir>/display/<name>`) is
+    where your display writes state or cache files — create it on first write, same as any
+    module. `ctx.observer` is the receiver position. There used to be an undocumented
+    `data_dir` config key that existed only so tests could override the path; it is gone —
+    tests now build a `ModuleContext` pointed at `tmp_path` instead.
 3. **Always return the list.** Even when you've done nothing else. Returning `None` breaks every module after you.
 4. **Handle the empty list.** It will happen, often. Decide what your display shows when there's nothing overhead.
 5. **Guard `UNKNOWN` fields.** Every field on every aircraft can be `None`. Decide your fallback (`"—"`, `"???"`, omitting the row).

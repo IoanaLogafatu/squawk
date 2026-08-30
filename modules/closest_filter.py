@@ -8,7 +8,7 @@ excluded as candidates. Returns an empty list if none qualify.
 
 from __future__ import annotations
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -24,5 +24,5 @@ class ClosestFilter(BaseModule):
 KEYS = {"type"}
 
 
-def get(cfg: dict) -> ClosestFilter:
+def get(cfg: dict, ctx: ModuleContext) -> ClosestFilter:
     return ClosestFilter()

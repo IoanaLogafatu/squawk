@@ -12,12 +12,15 @@ Covers:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PIL import Image
 from unittest.mock import MagicMock
 
 import modules
-from modules import clear_module_pool, get_module
+from config import ObserverConfig
+from modules import ModuleContext, clear_module_pool, get_module
 from modules.closest_filter import ClosestFilter
 from display.console import ConsoleDisplay
 from display.epaper import EpaperDisplay
@@ -37,6 +40,14 @@ def _reset_module_pool():
     clear_module_pool()
     yield
     clear_module_pool()
+
+
+def _ctx(tmp_path: Path) -> ModuleContext:
+    return ModuleContext(
+        data_dir=tmp_path,
+        module_dir=tmp_path / "display" / "epaper",
+        observer=ObserverConfig(latitude=53.7778, longitude=-1.5721),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +116,7 @@ def test_closest_filter_single_aircraft_returned():
 # ===========================================================================
 
 def test_epaper_display_renders_aircraft(tmp_path):
-    display = EpaperDisplay({"data_dir": str(tmp_path), "port": 0})
+    display = EpaperDisplay({"port": 0}, _ctx(tmp_path))
     display.process([_make_aircraft("AA1111", distance_nm=5.0)])
     png = tmp_path / "display" / "epaper" / "squawk_display.png"
     assert png.exists()
@@ -115,7 +126,7 @@ def test_epaper_display_renders_aircraft(tmp_path):
 
 
 def test_epaper_display_only_redraws_on_change(tmp_path):
-    display = EpaperDisplay({"data_dir": str(tmp_path), "port": 0})
+    display = EpaperDisplay({"port": 0}, _ctx(tmp_path))
     mock_output = MagicMock()
     display._output = mock_output
 
@@ -130,14 +141,14 @@ def test_epaper_display_only_redraws_on_change(tmp_path):
 
 
 def test_epaper_display_handles_empty_list(tmp_path):
-    display = EpaperDisplay({"data_dir": str(tmp_path), "port": 0})
+    display = EpaperDisplay({"port": 0}, _ctx(tmp_path))
     display.process([])     # empty list → "no aircraft" image
     png = tmp_path / "display" / "epaper" / "squawk_display.png"
     assert png.exists()
 
 
 def test_epaper_display_no_redraw_when_still_empty(tmp_path):
-    display = EpaperDisplay({"data_dir": str(tmp_path), "port": 0})
+    display = EpaperDisplay({"port": 0}, _ctx(tmp_path))
     mock_output = MagicMock()
     display._output = mock_output
 
@@ -268,3 +279,49 @@ def test_clear_module_pool_produces_fresh_instances():
     clear_module_pool()
     second = get_module("closest_filter")
     assert first is not second
+
+
+# ===========================================================================
+# 5. Module context — every module accepts ctx, module_dir is type-keyed
+# ===========================================================================
+
+def test_every_module_accepts_two_argument_signature(tmp_path, monkeypatch):
+    import importlib
+    import pkgutil
+
+    from modules import tar1090_db as tar1090_db_module
+
+    # Avoid a real network call from tar1090_db's first-run CSV download.
+    monkeypatch.setattr(
+        tar1090_db_module, "_download",
+        lambda path: (_ for _ in ()).throw(RuntimeError("no network in tests")),
+    )
+
+    ctx = ModuleContext(
+        data_dir=tmp_path,
+        module_dir=tmp_path / "modules" / "generic",
+        observer=ObserverConfig(latitude=53.7778, longitude=-1.5721),
+    )
+
+    for info in pkgutil.iter_modules(modules.__path__):
+        mod = importlib.import_module(f"modules.{info.name}")
+        instance = mod.get({}, ctx)
+        assert isinstance(instance, modules.BaseModule), \
+            f"modules/{info.name}.py's get() did not return a BaseModule"
+
+
+def test_module_dir_keyed_on_type_not_block_name(tmp_path, monkeypatch):
+    from config import config as squawk_config
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
+
+    enricher = get_module("adsbdb_tv", {"type": "adsbdb"})
+    assert enricher._cache_dir == tmp_path / "modules" / "adsbdb"
+    assert not (tmp_path / "modules" / "adsbdb_tv").exists()
+
+
+def test_factory_does_not_create_module_dir(tmp_path, monkeypatch):
+    from config import config as squawk_config
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
+
+    get_module("pass_through")
+    assert not (tmp_path / "modules" / "pass_through").exists()

@@ -12,11 +12,21 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from config import ObserverConfig
 from display.pushover import PushoverDisplay
+from modules import ModuleContext
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
 )
+
+
+def _ctx(tmp_path: Path) -> ModuleContext:
+    return ModuleContext(
+        data_dir=tmp_path,
+        module_dir=tmp_path / "display" / "pushover",
+        observer=ObserverConfig(latitude=53.7778, longitude=-1.5721),
+    )
 
 
 def _make_aircraft(
@@ -44,12 +54,11 @@ def _make_aircraft(
 
 
 def test_pushover_skipped_on_placeholder_or_missing_credentials(tmp_path):
-    display1 = PushoverDisplay({"data_dir": str(tmp_path)})
+    display1 = PushoverDisplay({}, _ctx(tmp_path))
     display2 = PushoverDisplay({
         "token": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "user": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "data_dir": str(tmp_path)
-    })
+        "user": "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }, _ctx(tmp_path))
 
     a = _make_aircraft("AA1111")
 
@@ -62,9 +71,8 @@ def test_pushover_skipped_on_placeholder_or_missing_credentials(tmp_path):
 def test_pushover_skipped_on_empty_aircraft_list(tmp_path):
     display = PushoverDisplay({
         "token": "valid_token",
-        "user": "valid_user",
-        "data_dir": str(tmp_path)
-    })
+        "user": "valid_user"
+    }, _ctx(tmp_path))
 
     with patch("requests.post") as mock_post:
         result = display.process([])
@@ -75,9 +83,8 @@ def test_pushover_skipped_on_empty_aircraft_list(tmp_path):
 def test_pushover_sends_notification_with_correct_details_and_format(tmp_path):
     display = PushoverDisplay({
         "token": "valid_token",
-        "user": "valid_user",
-        "data_dir": str(tmp_path)
-    })
+        "user": "valid_user"
+    }, _ctx(tmp_path))
 
     a = _make_aircraft(
         "407F0D",
@@ -117,9 +124,8 @@ def test_pushover_sends_notification_with_correct_details_and_format(tmp_path):
 def test_pushover_requires_all_5_facts(tmp_path):
     display = PushoverDisplay({
         "token": "valid_token",
-        "user": "valid_user",
-        "data_dir": str(tmp_path)
-    })
+        "user": "valid_user"
+    }, _ctx(tmp_path))
 
     with patch("requests.post") as mock_post:
         # Missing airline
@@ -156,9 +162,8 @@ def test_pushover_requires_all_5_facts(tmp_path):
 def test_pushover_rate_limit_checks_disk(tmp_path):
     display = PushoverDisplay({
         "token": "valid_token",
-        "user": "valid_user",
-        "data_dir": str(tmp_path)
-    })
+        "user": "valid_user"
+    }, _ctx(tmp_path))
 
     a = _make_aircraft("AA1111")
     ts_file = tmp_path / "display" / "pushover" / "last_notification.txt"
@@ -197,9 +202,8 @@ def test_pushover_rate_limit_checks_disk(tmp_path):
 def test_pushover_hex_and_callsign_deduplication_allows_new_callsign_within_cooldown(tmp_path):
     display = PushoverDisplay({
         "token": "valid_token",
-        "user": "valid_user",
-        "data_dir": str(tmp_path)
-    })
+        "user": "valid_user"
+    }, _ctx(tmp_path))
 
     outbound = _make_aircraft(
         "407F0D",

@@ -6,12 +6,23 @@ Tests for the registration_filter module.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from config import ObserverConfig
+from modules import ModuleContext
 from modules.registration_filter import RegistrationFilter, get
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
+)
+
+# registration_filter ignores ctx entirely — any placeholder will do.
+_CTX = ModuleContext(
+    data_dir=Path("."),
+    module_dir=Path("./modules/registration_filter"),
+    observer=ObserverConfig(latitude=0.0, longitude=0.0),
 )
 
 
@@ -64,6 +75,6 @@ def test_registration_filter_empty_config():
 
 
 def test_registration_filter_factory():
-    rf = get({"registrations": ["G-BOAC"]})
+    rf = get({"registrations": ["G-BOAC"]}, _CTX)
     assert rf._target_registrations == {"G-BOAC"}
 

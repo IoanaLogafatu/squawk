@@ -18,10 +18,9 @@ e-paper flicker and wear.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from display.epaper.output import EpaperOutput, start_http_server
 from display.epaper.renderer import render
 from schemas.aircraft import Aircraft
@@ -50,10 +49,8 @@ def _signature(a: Optional[Aircraft]) -> tuple:
 
 class EpaperDisplay(BaseModule):
 
-    def __init__(self, cfg: dict) -> None:
-        from config import config as squawk_config
-        data_dir = Path(cfg.get("data_dir", squawk_config.squawk.data_dir))
-        png_path = data_dir / "display" / "epaper" / "squawk_display.png"
+    def __init__(self, cfg: dict, ctx: ModuleContext) -> None:
+        png_path = ctx.module_dir / "squawk_display.png"
         port     = int(cfg.get("port", 7700))
 
         self._output         = EpaperOutput(png_path, cfg.get("full_refresh_every", 600))
@@ -77,5 +74,5 @@ class EpaperDisplay(BaseModule):
         return aircraft
 
 
-def get(cfg: dict) -> EpaperDisplay:
-    return EpaperDisplay(cfg)
+def get(cfg: dict, ctx: ModuleContext) -> EpaperDisplay:
+    return EpaperDisplay(cfg, ctx)

@@ -1,4 +1,9 @@
+from pathlib import Path
+
 import pytest
+
+from config import ObserverConfig
+from modules import ModuleContext
 from modules.vertical_rate_filter import VerticalRateFilter, get
 from schemas.aircraft import (
     Aircraft,
@@ -8,6 +13,13 @@ from schemas.aircraft import (
     AircraftRoute,
     Airframe,
     AircraftRaw,
+)
+
+# vertical_rate_filter ignores ctx entirely — any placeholder will do.
+_CTX = ModuleContext(
+    data_dir=Path("."),
+    module_dir=Path("./modules/vertical_rate_filter"),
+    observer=ObserverConfig(latitude=0.0, longitude=0.0),
 )
 
 
@@ -23,7 +35,7 @@ def _make_ac(hex_id: str, vr: float | None) -> Aircraft:
 
 
 def test_climbing_filter():
-    f = get({"mode": "climbing"})
+    f = get({"mode": "climbing"}, _CTX)
     ac_climb = _make_ac("111111", 1500)
     ac_level = _make_ac("222222", 0)
     ac_desc = _make_ac("333333", -1200)
@@ -34,7 +46,7 @@ def test_climbing_filter():
 
 
 def test_descending_filter():
-    f = get({"mode": "descending"})
+    f = get({"mode": "descending"}, _CTX)
     ac_climb = _make_ac("111111", 1500)
     ac_level = _make_ac("222222", 0)
     ac_desc = _make_ac("333333", -1200)
@@ -45,7 +57,7 @@ def test_descending_filter():
 
 
 def test_custom_min_max_fpm():
-    f = get({"min_fpm": 500, "max_fpm": 2000})
+    f = get({"min_fpm": 500, "max_fpm": 2000}, _CTX)
     ac1 = _make_ac("111111", 1500)
     ac2 = _make_ac("222222", 2500)
     ac3 = _make_ac("333333", 200)

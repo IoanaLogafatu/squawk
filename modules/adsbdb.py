@@ -65,7 +65,7 @@ from typing import Optional
 
 import requests
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -254,9 +254,7 @@ class AdsbdbEnricher(BaseModule):
 KEYS = {"type"}
 
 
-def get(cfg: dict) -> AdsbdbEnricher:
-    from config import config as squawk_config
-    data_dir  = Path(squawk_config.squawk.data_dir)
-    cache_dir = data_dir / "modules" / "adsbdb"
+def get(cfg: dict, ctx: ModuleContext) -> AdsbdbEnricher:
+    cache_dir = ctx.module_dir
     cache_dir.mkdir(parents=True, exist_ok=True)
     return AdsbdbEnricher(cache_dir=cache_dir)

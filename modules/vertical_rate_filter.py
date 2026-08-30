@@ -8,7 +8,7 @@ Supports 'min_fpm', 'max_fpm', or mode ('climbing', 'descending', 'level').
 from __future__ import annotations
 
 from typing import Optional
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -54,7 +54,7 @@ class VerticalRateFilter(BaseModule):
 KEYS = {"type", "min_fpm", "max_fpm", "mode", "threshold"}
 
 
-def get(cfg: dict) -> VerticalRateFilter:
+def get(cfg: dict, ctx: ModuleContext) -> VerticalRateFilter:
     return VerticalRateFilter(
         min_fpm=cfg.get("min_fpm"),
         max_fpm=cfg.get("max_fpm"),

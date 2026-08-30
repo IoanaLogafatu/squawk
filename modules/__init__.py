@@ -13,9 +13,13 @@ module hold a connection, cache, or rate limiter without hand-rolling its own
 singleton: instances are shared across chains that run in separate threads, so
 mutable state must be guarded (see docs/modules-guide.md).
 
+Each module's get(cfg, ctx) factory also receives a ModuleContext, built once
+per instance from global config — a module should use ctx rather than reaching
+for `from config import config` itself (see docs/modules-guide.md).
+
 Adding a module:
     1. Create modules/<name>.py or modules/<name>/ implementing BaseModule
-    2. Expose a get(cfg) factory function
+    2. Expose a get(cfg, ctx) factory function
     3. Reference it by name in config.toml under processor.modules
 """
 
@@ -26,14 +30,32 @@ import json
 import threading
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from schemas.aircraft import Aircraft
+
+if TYPE_CHECKING:
+    from config import ObserverConfig
 
 
 class BaseModule(ABC):
 
     @abstractmethod
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]: ...
+
+
+@dataclass(frozen=True)
+class ModuleContext:
+    """Everything a module may need from the wider installation.
+
+    Built by the factory, one per module. Modules that need neither field
+    accept it and ignore it — the signature is uniform.
+    """
+    data_dir:   Path              # installation data directory
+    module_dir: Path              # this module's own directory; not created
+    observer:   "ObserverConfig"  # receiver position
 
 
 _INSTANCES: dict[tuple[str, str], BaseModule] = {}
@@ -63,7 +85,14 @@ def get_module(name: str, cfg: dict | None = None) -> BaseModule:
                     print(f"  config: [modules.{name}] has unrecognised key(s): "
                           f"{', '.join(sorted(unknown))}")
 
-            _INSTANCES[key] = module.get(cfg)
+            from config import config as squawk_config
+            data_dir = Path(squawk_config.squawk.data_dir)
+            ctx = ModuleContext(
+                data_dir   = data_dir,
+                module_dir = data_dir / "modules" / module_type,
+                observer   = squawk_config.observer,
+            )
+            _INSTANCES[key] = module.get(cfg, ctx)
         return _INSTANCES[key]
 
 
@@ -71,4 +100,3 @@ def clear_module_pool() -> None:
     """Drop all pooled instances. For tests only."""
     with _INSTANCES_LOCK:
         _INSTANCES.clear()
-

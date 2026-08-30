@@ -8,7 +8,7 @@ be chained after it if needed.
 
 from __future__ import annotations
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -25,5 +25,5 @@ class ConsoleDisplay(BaseModule):
         return aircraft
 
 
-def get(cfg: dict) -> ConsoleDisplay:
+def get(cfg: dict, ctx: ModuleContext) -> ConsoleDisplay:
     return ConsoleDisplay()

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import requests
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -142,11 +142,9 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
 KEYS = {"type"}
 
 
-def get(cfg: dict) -> Tar1090DbEnricher:
-    from config import config as squawk_config
-    data_dir = Path(squawk_config.squawk.data_dir)
-    csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
-    db_path  = data_dir / "modules" / "tar1090_db" / "aircraft.db"
+def get(cfg: dict, ctx: ModuleContext) -> Tar1090DbEnricher:
+    csv_path = ctx.module_dir / "aircraft.csv"
+    db_path  = ctx.module_dir / "aircraft.db"
 
     if _needs_refresh(csv_path):
         try:

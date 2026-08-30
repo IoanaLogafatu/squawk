@@ -22,7 +22,7 @@ import threading
 from http.server import ThreadingHTTPServer
 
 from display.http.server import SharedState, make_handler
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -63,5 +63,5 @@ class HttpDisplay(BaseModule):
         return aircraft
 
 
-def get(cfg: dict) -> HttpDisplay:
+def get(cfg: dict, ctx: ModuleContext) -> HttpDisplay:
     return HttpDisplay(cfg)

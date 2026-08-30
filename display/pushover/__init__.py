@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 import requests
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -29,14 +28,12 @@ def _format_country(c: str | None) -> str | None:
 
 class PushoverDisplay(BaseModule):
 
-    def __init__(self, cfg: dict) -> None:
-        from config import config as squawk_config
+    def __init__(self, cfg: dict, ctx: ModuleContext) -> None:
         self._token = cfg.get("token")
         self._user = cfg.get("user")
         self._cooldown_seconds = float(cfg.get("cooldown_seconds", 7200))
-        self._data_dir = Path(cfg.get("data_dir", squawk_config.squawk.data_dir))
-        self._last_sent_path = self._data_dir / "display" / "pushover" / "last_notification.txt"
-        self._last_json_path = self._data_dir / "display" / "pushover" / "last_notification.json"
+        self._last_sent_path = ctx.module_dir / "last_notification.txt"
+        self._last_json_path = ctx.module_dir / "last_notification.json"
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
         if not aircraft:
@@ -179,6 +176,6 @@ class PushoverDisplay(BaseModule):
             print(f"Error writing last notification state: {e}")
 
 
-def get(cfg: dict) -> PushoverDisplay:
-    return PushoverDisplay(cfg)
+def get(cfg: dict, ctx: ModuleContext) -> PushoverDisplay:
+    return PushoverDisplay(cfg, ctx)
 

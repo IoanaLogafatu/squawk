@@ -12,7 +12,7 @@ A module:
 
 - Subclasses `BaseModule`.
 - Implements `process(aircraft) -> aircraft`.
-- Exposes a module-level `get(cfg) -> BaseModule` factory.
+- Exposes a module-level `get(cfg, ctx) -> BaseModule` factory.
 - Always returns a list — empty is fine, `None` is not.
 - May mutate the aircraft objects it receives (unlike repositories).
 
@@ -169,8 +169,21 @@ Today, getting the order right is the configurer's responsibility. A planned **d
 ## Writing your own — checklist
 
 1. **Subclass `BaseModule`** and implement `process(aircraft)`.
-2. **Add the factory:** `def get(cfg: dict) -> YourModule`.
-2a. **Recommended: declare `KEYS`.** A module-level `KEYS = {"type", "your_option", ...}` set
+2. **Add the factory:** `def get(cfg: dict, ctx: ModuleContext) -> YourModule`.
+2a. **Use `ctx`, not global config.** `ctx.module_dir` is your module's directory for
+    caches and state — create it when you first write, and never write anywhere else.
+    `ctx.observer` is the receiver position. `ctx.data_dir` is the installation root, which
+    you should rarely need. Importing `config` directly inside a module works today but
+    couples you to the whole configuration and makes your module impossible to test without
+    faking the import.
+
+    Modules that need none of this still take `ctx` and ignore it — the signature is
+    uniform so the factory never has to ask what a module wants.
+
+    The directory is keyed on module *type*, so two config blocks aliasing the same module
+    share one cache. That is usually what you want. If it is not, key your files within the
+    directory.
+2b. **Recommended: declare `KEYS`.** A module-level `KEYS = {"type", "your_option", ...}` set
     lets `get_module()` warn when a config block has a key it doesn't recognise — catches a
     misspelled option (`belwo = 5000`) that would otherwise fail silently. Not required; a
     module with no `KEYS` is simply not checked.

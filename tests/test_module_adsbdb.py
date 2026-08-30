@@ -292,15 +292,9 @@ def test_callsign_normalised_to_trimmed_uppercase_filename(tmp_path, monkeypatch
 
 @pytest.fixture
 def reset_module_pool(tmp_path, monkeypatch):
+    from config import config as squawk_config
     clear_module_pool()
-
-    class _Squawk:
-        data_dir = str(tmp_path)
-
-    class _Cfg:
-        squawk = _Squawk()
-
-    monkeypatch.setitem(__import__("sys").modules, "config", type("M", (), {"config": _Cfg()}))
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
     yield
     clear_module_pool()
 

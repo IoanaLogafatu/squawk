@@ -6,12 +6,23 @@ Tests for the altitude_filter module.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from config import ObserverConfig
+from modules import ModuleContext
 from modules.altitude_filter import AltitudeFilter, get
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
+)
+
+# altitude_filter ignores ctx entirely — any placeholder will do.
+_CTX = ModuleContext(
+    data_dir=Path("."),
+    module_dir=Path("./modules/altitude_filter"),
+    observer=ObserverConfig(latitude=0.0, longitude=0.0),
 )
 
 
@@ -121,7 +132,7 @@ def test_altitude_filter_factory_function():
         "altitude_source": "alt_baro",
         "fallback": True,
     }
-    module = get(cfg)
+    module = get(cfg, _CTX)
     assert isinstance(module, AltitudeFilter)
     assert module._above == 10000.0
     assert module._below == 30000.0

@@ -8,6 +8,7 @@ Covers:
   2. HTTP server — page served, 404 for unknown paths
   3. Panel config — chain_name → title/order lookup, defaults, list payload
   4. render_aircraft_dict — JSON output for each display field
+  5. Display factory — get_display() builds a ModuleContext for every display
 """
 
 from __future__ import annotations
@@ -305,3 +306,40 @@ def test_render_route_destination_only():
 def test_render_route_neither_is_null():
     d = render_aircraft_dict(_make_aircraft())
     assert d["route"] is None
+
+
+# ===========================================================================
+# 5. Display factory — get_display() builds a ModuleContext for every display
+# ===========================================================================
+
+def test_every_display_accepts_two_argument_signature(tmp_path, monkeypatch):
+    import importlib
+    import pkgutil
+
+    import display as display_pkg
+    from modules import BaseModule
+
+    from config import config as squawk_config
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
+
+    from display import get_display
+
+    cfg_by_display = {
+        "http":   {"port": _free_port(), "chain_name": "t"},
+        "epaper": {"port": _free_port()},
+    }
+
+    for info in pkgutil.iter_modules(display_pkg.__path__):
+        display = get_display(info.name, cfg_by_display.get(info.name, {}))
+        assert isinstance(display, BaseModule), \
+            f"display/{info.name} did not return a BaseModule"
+
+
+def test_get_display_module_dir_is_data_dir_slash_display_slash_name(tmp_path, monkeypatch):
+    from config import config as squawk_config
+    from display import get_display
+
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
+
+    pushover = get_display("pushover", {"token": "t", "user": "u"})
+    assert pushover._last_sent_path.parent == tmp_path / "display" / "pushover"

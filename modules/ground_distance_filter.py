@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 # Unit conversion factors to Nautical Miles (nm)
@@ -114,23 +114,13 @@ class GroundDistanceFilter(BaseModule):
 KEYS = {"type", "max_distance", "min_distance", "unit", "observer_lat", "observer_lon"}
 
 
-def get(cfg: dict) -> GroundDistanceFilter:
+def get(cfg: dict, ctx: ModuleContext) -> GroundDistanceFilter:
     max_dist = cfg.get("max_distance")
     min_dist = cfg.get("min_distance")
     unit     = cfg.get("unit", "nm")
 
-    obs_lat = cfg.get("observer_lat")
-    obs_lon = cfg.get("observer_lon")
-    if obs_lat is None or obs_lon is None:
-        try:
-            from config import config as squawk_config
-            if squawk_config and squawk_config.observer:
-                if obs_lat is None:
-                    obs_lat = squawk_config.observer.latitude
-                if obs_lon is None:
-                    obs_lon = squawk_config.observer.longitude
-        except Exception:
-            pass
+    obs_lat = cfg.get("observer_lat", ctx.observer.latitude)
+    obs_lon = cfg.get("observer_lon", ctx.observer.longitude)
 
     return GroundDistanceFilter(
         max_distance=max_dist,

@@ -456,8 +456,16 @@ def test_config_toml_example_loads_without_error():
 def test_removed_ground_distance_synonym_no_longer_applies():
     # Config-level companion to modules/ground_distance_filter's own test:
     # a stale 'within' key must not silently set a maximum any more.
+    from config import ObserverConfig
+    from modules import ModuleContext
     from modules.ground_distance_filter import get
-    gdf = get({"within": 10})
+
+    ctx = ModuleContext(
+        data_dir=Path("."),
+        module_dir=Path("./modules/ground_distance_filter"),
+        observer=ObserverConfig(latitude=0.0, longitude=0.0),
+    )
+    gdf = get({"within": 10}, ctx)
     assert gdf._max_distance_nm is None
 
 

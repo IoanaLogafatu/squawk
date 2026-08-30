@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from config import ObserverConfig
 from display.pushover import PushoverDisplay
+from modules import ModuleContext
 from modules.adsbdb import AdsbdbEnricher
 from modules.registration_filter import RegistrationFilter
 from schemas.aircraft import (
@@ -22,13 +24,17 @@ from schemas.aircraft import (
 
 
 def test_pipeline_ingest_enriched_aircraft_to_pushover_notification(tmp_path):
+    ctx = ModuleContext(
+        data_dir=tmp_path,
+        module_dir=tmp_path / "display" / "pushover",
+        observer=ObserverConfig(latitude=53.7778, longitude=-1.5721),
+    )
     reg_filter = RegistrationFilter(["G-RUKK", "G-EZOK"])
     adsbdb = AdsbdbEnricher(cache_dir=tmp_path / "modules" / "adsbdb")
     pushover = PushoverDisplay({
         "token": "valid_token_123",
         "user": "valid_user_456",
-        "data_dir": str(tmp_path)
-    })
+    }, ctx)
 
     # Ingest-time enrichment has already filled registration + aircraft_type.
     a = Aircraft(

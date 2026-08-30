@@ -8,7 +8,7 @@ or to reserve a position for a future filter.
 
 from __future__ import annotations
 
-from modules import BaseModule
+from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
@@ -21,5 +21,5 @@ class PassThrough(BaseModule):
 KEYS = {"type"}
 
 
-def get(cfg: dict) -> PassThrough:
+def get(cfg: dict, ctx: ModuleContext) -> PassThrough:
     return PassThrough()

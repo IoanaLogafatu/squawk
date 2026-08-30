@@ -6,13 +6,25 @@ Tests for the ground_distance_filter module.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from config import ObserverConfig
+from modules import ModuleContext
 from modules.ground_distance_filter import GroundDistanceFilter, get, haversine_distance_nm
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
 )
+
+
+def _ctx(lat: float = 53.7778, lon: float = -1.5721) -> ModuleContext:
+    return ModuleContext(
+        data_dir=Path("."),
+        module_dir=Path("./modules/ground_distance_filter"),
+        observer=ObserverConfig(latitude=lat, longitude=lon),
+    )
 
 
 def _make_aircraft(
@@ -98,7 +110,7 @@ def test_haversine_fallback():
 
 
 def test_factory_get_canonical_keys():
-    rf = get({"max_distance": 25, "min_distance": 2, "unit": "miles"})
+    rf = get({"max_distance": 25, "min_distance": 2, "unit": "miles"}, _ctx())
     assert rf._max_distance_nm == pytest.approx(25 * (1609.344 / 1852.0))
     assert rf._min_distance_nm == pytest.approx(2 * (1609.344 / 1852.0))
 
@@ -106,7 +118,22 @@ def test_factory_get_canonical_keys():
 def test_factory_get_ignores_removed_synonyms():
     # 'distance', 'within', 'below', 'above', 'units' were removed in favour of
     # one spelling each (max_distance, min_distance, unit) — they no longer apply.
-    rf = get({"distance": 25, "within": 10, "below": 30, "above": 2, "units": "miles"})
+    rf = get({"distance": 25, "within": 10, "below": 30, "above": 2, "units": "miles"}, _ctx())
     assert rf._max_distance_nm is None
     assert rf._min_distance_nm is None
     assert rf._unit == "nm"
+
+
+def test_observer_position_arrives_from_context():
+    # No observer_lat/observer_lon in cfg — the haversine fallback must still
+    # work, using ctx.observer. This is the behaviour the swallowed
+    # try/except around `from config import config` used to be able to break
+    # silently if [observer] was ever missing.
+    obs_lat, obs_lon = 53.7778, -1.5721
+    rf = get({"max_distance": 25, "unit": "miles"}, _ctx(lat=obs_lat, lon=obs_lon))
+
+    a_overhead = _make_aircraft(hex_id="OVERHEAD", distance_nm=None, lat=obs_lat, lon=obs_lon)
+    a_nodata   = _make_aircraft(hex_id="NODATA",   distance_nm=None, lat=None,    lon=None)
+
+    result = rf.process([a_overhead, a_nodata])
+    assert result == [a_overhead]
