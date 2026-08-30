@@ -21,5 +21,8 @@ class ClosestFilter(BaseModule):
         return [min(candidates, key=lambda a: a.location.distance_nm)]
 
 
+KEYS = {"type"}
+
+
 def get(cfg: dict) -> ClosestFilter:
     return ClosestFilter()

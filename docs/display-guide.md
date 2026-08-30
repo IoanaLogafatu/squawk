@@ -101,7 +101,7 @@ title = "Mid Level (5k–15k ft)"
 order = 2
 ```
 
-Both `title` and `order` are optional. A chain with no matching block falls back to a title-cased chain name (`low_level` → `Low Level`) and order 999, so it lands at the end of the grid. A startup warning prints naming the chain so the omission is visible in the logs.
+Both `title` and `order` are optional and default to a title-cased chain name (`low_level` → `Low Level`) and order 999 respectively — but the block itself is required. A chain with `display = "http"` and no matching `[display.http.panels.<chain>]` block fails at startup rather than falling back silently, so a renamed chain can't orphan its panel unnoticed.
 
 Notable details:
 

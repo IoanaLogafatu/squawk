@@ -51,10 +51,13 @@ class VerticalRateFilter(BaseModule):
         return filtered
 
 
+KEYS = {"type", "min_fpm", "max_fpm", "mode", "threshold"}
+
+
 def get(cfg: dict) -> VerticalRateFilter:
     return VerticalRateFilter(
-        min_fpm=cfg.get("min_fpm", cfg.get("above")),
-        max_fpm=cfg.get("max_fpm", cfg.get("below")),
+        min_fpm=cfg.get("min_fpm"),
+        max_fpm=cfg.get("max_fpm"),
         mode=cfg.get("mode"),
         threshold=cfg.get("threshold", 200.0),
     )

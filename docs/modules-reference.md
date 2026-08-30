@@ -19,6 +19,7 @@ For the mechanics of writing a new one, see the **Modules Developer Guide** and 
 | `closest_filter` | Module — Filter | `[modules.closest_filter]` | Reduces to the single nearest aircraft |
 | `altitude_filter` | Module — Filter | `[modules.altitude_filter]` | Keeps aircraft within an altitude band |
 | `ground_distance_filter` | Module — Filter | `[modules.ground_distance_filter]` | Keeps aircraft within a ground distance range (miles, km, nm) |
+| `vertical_rate_filter` | Module — Filter | `[modules.vertical_rate_filter]` | Keeps aircraft climbing, descending, or level |
 | `registration_filter` | Module — Filter | `[modules.registration_filter]` | Keeps only a configured tail-number watchlist |
 | `tar1090_db` | Module — Enrichment | *(none)* | Fills registration/type from the tar1090 CSV |
 | `adsbdb` | Module — Enrichment | *(none)* | Fills manufacturer, owner, and route from adsbdb.com |
@@ -66,7 +67,7 @@ enabled = true
 
 ## Modules
 
-Modules are the ordered chain named in `processors.<name>.modules`; each name maps to a `[modules.<name>]` config table (if it needs one). Every module shares one interface — `process(aircraft) -> aircraft` — so the distinction below is convention, not enforcement.
+Modules are the ordered chain named in `processors.<name>.modules`; each name maps to a `[modules.<name>]` config table, empty if the module takes no options — the block itself is required, or config loading fails at startup. Every module shares one interface — `process(aircraft) -> aircraft` — so the distinction below is convention, not enforcement.
 
 ```toml
 [processors.screen]
@@ -113,6 +114,27 @@ unit         = "miles"      # "miles", "km", or "nm" (default "nm")
 
 Supports distance units: `"miles"` (or `"mi"`), `"km"` (or `"kilometers"`), and `"nm"` (or `"nmi"` / `"nautical_miles"`). Evaluates distance based on `location.distance_nm` or computes Haversine ground distance from observer coordinates if `distance_nm` is absent. Raises at startup if `min_distance > max_distance`.
 
+#### `vertical_rate_filter`
+
+Keeps only aircraft climbing or descending at a qualifying rate. Either set `mode` for a
+common case, or set `min_fpm`/`max_fpm` directly for a custom band.
+
+```toml
+[modules.vertical_rate_filter]
+mode      = "climbing"   # "climbing", "descending", or "level"
+threshold = 200.0        # fpm magnitude used by mode (default 200.0)
+```
+
+```toml
+[modules.vertical_rate_filter]
+min_fpm = 500     # custom band instead of mode (optional)
+max_fpm = 2000    # custom band instead of mode (optional)
+```
+
+`mode = "climbing"` keeps `vertical_rate_fpm >= threshold`; `"descending"` keeps
+`<= -threshold`; `"level"` keeps `-threshold <= vertical_rate_fpm <= threshold`. `mode`
+takes priority over `min_fpm`/`max_fpm` when both are set. Aircraft with `UNKNOWN`
+vertical rate are excluded as candidates rather than crashing the comparison.
 
 #### `registration_filter`
 
@@ -137,6 +159,7 @@ Fills `airframe.registration` and `airframe.aircraft_type` from the [tar1090-db]
 - Downloads `aircraft.csv.gz` automatically on first run and refreshes it every 30 days.
 - Cached at `<data_dir>/modules/tar1090_db/aircraft.csv`.
 - No config keys of its own.
+- **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `tar1090_db` itself. Every chain naming the same block shares one SQLite handle rather than each opening its own.
 
 As noted in project learnings: this only reliably covers US-registered aircraft. European commercial traffic needs the `adsbdb` → callsign-prefix → OpenFlights fallback chain to fill the same fields.
 
@@ -148,6 +171,7 @@ Fills `airframe.manufacturer`, `airframe.registration`, `airframe.aircraft_type`
 - **Rate-limited:** enforces adsbdb's published limits (512 calls/60s, 1024 calls/300s) via an in-memory deque; a call that would exceed either window is skipped for the cycle rather than blocking, leaving the field `UNKNOWN` until the next attempt.
 - **Skips gracefully** when `route.callsign` is `UNKNOWN` — no callsign means no route lookup, though airframe data can still arrive via `tar1090_db`.
 - **Run this after your filters.** Running it before means every aircraft in range triggers a lookup every cycle, burning through the rate budget for aircraft you're about to discard anyway.
+- **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `adsbdb` itself. Eight chains naming `adsbdb` share one cache and one rate limiter, which is what makes the rate limit meaningful across an installation rather than per chain.
 - **Licensing:** route data carries a non-commercial licence (David Taylor / Jim Mason). Runtime fetching is fine; the cache is gitignored and must never be committed to the repo.
 
 No config keys — behaviour (cache dir, rate limits, TTL) is fixed in code, keyed off `squawk.data_dir`.

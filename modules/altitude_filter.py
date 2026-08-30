@@ -78,6 +78,9 @@ class AltitudeFilter(BaseModule):
         return filtered
 
 
+KEYS = {"type", "above", "below", "altitude_source", "fallback"}
+
+
 def get(cfg: dict) -> AltitudeFilter:
     above = cfg.get("above")
     below = cfg.get("below")

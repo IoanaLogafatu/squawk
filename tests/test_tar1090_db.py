@@ -123,8 +123,9 @@ def test_load_db_normalises_hex_to_uppercase(tmp_path):
 
 
 def test_missing_csv_returns_noop_enricher(tmp_path, monkeypatch):
-    from modules import tar1090_db
+    from modules import clear_module_pool, tar1090_db
     from config import config as squawk_config
+    clear_module_pool()
     monkeypatch.setattr(tar1090_db, "_download", lambda path: (_ for _ in ()).throw(RuntimeError("no network")))
     monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
     enricher = tar1090_db.get({})

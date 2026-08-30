@@ -2,7 +2,7 @@
 modules/ground_distance_filter.py
 
 Processor filter module that filters aircraft based on ground distance (great-circle 2D distance),
-supporting configurable distance bounds (above/min_distance and below/max_distance) and distance units
+supporting configurable distance bounds (min_distance and max_distance) and distance units
 ('miles', 'km', 'nm').
 """
 
@@ -111,20 +111,13 @@ class GroundDistanceFilter(BaseModule):
         return filtered
 
 
+KEYS = {"type", "max_distance", "min_distance", "unit", "observer_lat", "observer_lon"}
+
+
 def get(cfg: dict) -> GroundDistanceFilter:
     max_dist = cfg.get("max_distance")
-    if max_dist is None:
-        max_dist = cfg.get("distance")
-    if max_dist is None:
-        max_dist = cfg.get("within")
-    if max_dist is None:
-        max_dist = cfg.get("below")
-
     min_dist = cfg.get("min_distance")
-    if min_dist is None:
-        min_dist = cfg.get("above")
-
-    unit = cfg.get("unit", cfg.get("units", "nm"))
+    unit     = cfg.get("unit", "nm")
 
     obs_lat = cfg.get("observer_lat")
     obs_lon = cfg.get("observer_lon")

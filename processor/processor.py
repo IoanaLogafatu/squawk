@@ -23,11 +23,8 @@ if TYPE_CHECKING:
     from config import ProcessorConfig
 
 
-def run(proc_cfg: ProcessorConfig | None = None) -> None:
-    cfg = proc_cfg or config.processor
-    if cfg is None:
-        print("No processor configuration provided.")
-        return
+def run(proc_cfg: ProcessorConfig) -> None:
+    cfg = proc_cfg
 
     storage = get_storage(config.storage.method, config.squawk.data_dir)
     module_cfgs = config.modules

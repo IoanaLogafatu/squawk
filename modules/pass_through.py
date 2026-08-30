@@ -18,5 +18,8 @@ class PassThrough(BaseModule):
         return aircraft
 
 
+KEYS = {"type"}
+
+
 def get(cfg: dict) -> PassThrough:
     return PassThrough()

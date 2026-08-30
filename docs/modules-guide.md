@@ -40,6 +40,19 @@ display               = "epaper"
 
 Each module's specific settings are defined under `[modules.<module_name>]`.
 
+### Every referenced module needs a block
+
+Every name a chain or ingestor lists under `modules` must have a matching `[modules.<name>]`
+table in config, even if the module takes no options — an empty table is normal and expected:
+
+```toml
+[modules.closest_filter]
+```
+
+One block means one instance. A name with no block is rejected at startup rather than
+silently falling through to defaults — this is what catches a typo in a module name before
+it quietly turns into a no-op filter.
+
 ### Ingestor modules — what enters storage
 
 Modules listed on an ingestor define what enters storage. They run against every aircraft before it is saved, and every processor chain sees only what survives them — no chain can recover what was dropped.
@@ -157,6 +170,10 @@ Today, getting the order right is the configurer's responsibility. A planned **d
 
 1. **Subclass `BaseModule`** and implement `process(aircraft)`.
 2. **Add the factory:** `def get(cfg: dict) -> YourModule`.
+2a. **Recommended: declare `KEYS`.** A module-level `KEYS = {"type", "your_option", ...}` set
+    lets `get_module()` warn when a config block has a key it doesn't recognise — catches a
+    misspelled option (`belwo = 5000`) that would otherwise fail silently. Not required; a
+    module with no `KEYS` is simply not checked.
 3. **Always return a list.** Empty if needed. Never `None`.
 4. **Guard `UNKNOWN`.** Any field on any aircraft can be `None`. Plan accordingly.
 5. **Document your category.** A docstring saying "this is a filter / enrichment / display" helps the next person reading config.
@@ -164,7 +181,13 @@ Today, getting the order right is the configurer's responsibility. A planned **d
 7. **Don't raise.** A module that crashes takes the cycle with it. Wrap risky I/O.
 8. **For enrichments: cache first, API second.** Bound your external traffic.
 9. **For enrichments: respect predicates.** A skipped lookup costs nothing.
-10. **For filters: empty-list behaviour is meaningful.** Returning `[]` is fine; just make sure downstream modules handle it (they should).
+10. **Instances are shared.** The factory returns one instance per `[modules.<name>]` block,
+    however many chains reference it. Eight chains naming `adsbdb` share one object. Chains
+    run in separate threads, so `process()` can be called concurrently on the same instance.
+    Stateless modules need no special care. If you hold mutable state — a counter, a rate
+    limiter, a cache — guard it with a lock. If you hold a resource that isn't thread-safe,
+    such as a database connection, make it thread-local.
+11. **For filters: empty-list behaviour is meaningful.** Returning `[]` is fine; just make sure downstream modules handle it (they should).
 
 ## Testing
 

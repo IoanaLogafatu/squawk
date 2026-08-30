@@ -37,6 +37,9 @@ class RegistrationFilter(BaseModule):
         return filtered
 
 
+KEYS = {"type", "registrations"}
+
+
 def get(cfg: dict) -> RegistrationFilter:
     target_registrations = cfg.get("registrations", [])
     return RegistrationFilter(target_registrations=target_registrations)

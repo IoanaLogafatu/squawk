@@ -139,36 +139,31 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None]]:
     return db
 
 
-_SQLITE_INSTANCE: SQLiteTarDb | None = None
-_SQLITE_LOCK = threading.Lock()
+KEYS = {"type"}
 
 
 def get(cfg: dict) -> Tar1090DbEnricher:
-    global _SQLITE_INSTANCE
-    with _SQLITE_LOCK:
-        if _SQLITE_INSTANCE is None:
-            from config import config as squawk_config
-            data_dir = Path(squawk_config.squawk.data_dir)
-            csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
-            db_path  = data_dir / "modules" / "tar1090_db" / "aircraft.db"
+    from config import config as squawk_config
+    data_dir = Path(squawk_config.squawk.data_dir)
+    csv_path = data_dir / "modules" / "tar1090_db" / "aircraft.csv"
+    db_path  = data_dir / "modules" / "tar1090_db" / "aircraft.db"
 
-            if _needs_refresh(csv_path):
-                try:
-                    _download(csv_path)
-                except Exception as exc:
-                    if not csv_path.exists():
-                        print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
-                        return Tar1090DbEnricher(db={})
-
-            if csv_path.exists():
-                if not db_path.exists() or db_path.stat().st_mtime < csv_path.stat().st_mtime:
-                    print(f"  tar1090_db: building SQLite index {db_path.name} …")
-                    _build_sqlite_db(csv_path, db_path)
-                _SQLITE_INSTANCE = SQLiteTarDb(db_path)
-                print(f"  tar1090_db: active via SQLite (0 MB RAM overhead)")
-            else:
+    if _needs_refresh(csv_path):
+        try:
+            _download(csv_path)
+        except Exception as exc:
+            if not csv_path.exists():
+                print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
                 return Tar1090DbEnricher(db={})
 
-    return Tar1090DbEnricher(_SQLITE_INSTANCE)
+    if csv_path.exists():
+        if not db_path.exists() or db_path.stat().st_mtime < csv_path.stat().st_mtime:
+            print(f"  tar1090_db: building SQLite index {db_path.name} …")
+            _build_sqlite_db(csv_path, db_path)
+        sqlite_db = SQLiteTarDb(db_path)
+        print(f"  tar1090_db: active via SQLite (0 MB RAM overhead)")
+        return Tar1090DbEnricher(sqlite_db)
+
+    return Tar1090DbEnricher(db={})
 
 

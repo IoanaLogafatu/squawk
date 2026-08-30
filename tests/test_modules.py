@@ -7,6 +7,7 @@ Covers:
   1. ClosestFilter — selects nearest, excludes unknowns, handles empty list
   2. EpaperDisplay — renders to image, skips redraw when data unchanged, handles empty list
   3. ConsoleDisplay — prints single-line output
+  4. Module factory pooling — get_module() shares instances by (name, cfg)
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import pytest
 from PIL import Image
 from unittest.mock import MagicMock
 
+import modules
+from modules import clear_module_pool, get_module
 from modules.closest_filter import ClosestFilter
 from display.console import ConsoleDisplay
 from display.epaper import EpaperDisplay
@@ -23,6 +26,17 @@ from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
 )
+
+
+# ---------------------------------------------------------------------------
+# Keep the module factory pool isolated between tests in this file
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _reset_module_pool():
+    clear_module_pool()
+    yield
+    clear_module_pool()
 
 
 # ---------------------------------------------------------------------------
@@ -200,3 +214,57 @@ def test_console_display_returns_list_unchanged():
     aircraft = [_make_aircraft("AA1111"), _make_aircraft("BB2222")]
     result = ConsoleDisplay().process(aircraft)
     assert result is aircraft
+
+
+# ===========================================================================
+# 4. Module factory pooling
+# ===========================================================================
+
+def test_same_name_same_config_one_instance():
+    first  = get_module("closest_filter")
+    second = get_module("closest_filter")
+    assert first is second
+
+
+def test_same_type_different_blocks_are_distinct_instances():
+    low = get_module("low_altitude", {"type": "altitude_filter", "below": 5000})
+    mid = get_module("mid_altitude", {"type": "altitude_filter", "above": 5000, "below": 15000})
+    assert low is not mid
+    assert low._below == 5000
+    assert mid._above == 5000
+
+
+def test_different_types_no_config_are_distinct_instances():
+    closest = get_module("closest_filter")
+    passthru = get_module("pass_through")
+    assert closest is not passthru
+
+
+def test_list_valued_config_key_round_trips():
+    a = get_module("registration_filter", {"registrations": ["G-ABCD", "G-EFGH"]})
+    b = get_module("registration_filter", {"registrations": ["G-ABCD", "G-EFGH"]})
+    c = get_module("registration_filter", {"registrations": ["G-ZZZZ"]})
+    assert a is b
+    assert a is not c
+
+
+def test_nested_config_key_is_stable_across_calls():
+    cfg = {"type": "pass_through", "extra": {"a": 1, "b": [1, 2, 3]}}
+    a = get_module("weird_alias", cfg)
+    b = get_module("weird_alias", dict(cfg))   # separate dict, same content
+    c = get_module("weird_alias", {"type": "pass_through", "extra": {"a": 1, "b": [1, 2, 4]}})
+    assert a is b
+    assert a is not c
+
+
+def test_unknown_module_raises_and_leaves_no_pool_entry():
+    with pytest.raises(ValueError):
+        get_module("nonexistent")
+    assert not any(key[0] == "nonexistent" for key in modules._INSTANCES)
+
+
+def test_clear_module_pool_produces_fresh_instances():
+    first = get_module("closest_filter")
+    clear_module_pool()
+    second = get_module("closest_filter")
+    assert first is not second

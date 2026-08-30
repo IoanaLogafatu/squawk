@@ -251,17 +251,12 @@ class AdsbdbEnricher(BaseModule):
             aircraft.route.destination_country = dest["country_name"]
 
 
-_INSTANCE: AdsbdbEnricher | None = None
-_INSTANCE_LOCK = threading.Lock()
+KEYS = {"type"}
 
 
 def get(cfg: dict) -> AdsbdbEnricher:
-    global _INSTANCE
-    with _INSTANCE_LOCK:
-        if _INSTANCE is None:
-            from config import config as squawk_config
-            data_dir  = Path(squawk_config.squawk.data_dir)
-            cache_dir = data_dir / "modules" / "adsbdb"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            _INSTANCE = AdsbdbEnricher(cache_dir=cache_dir)
-    return _INSTANCE
+    from config import config as squawk_config
+    data_dir  = Path(squawk_config.squawk.data_dir)
+    cache_dir = data_dir / "modules" / "adsbdb"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return AdsbdbEnricher(cache_dir=cache_dir)

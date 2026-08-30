@@ -97,14 +97,16 @@ def test_haversine_fallback():
     assert result == [a_overhead]
 
 
-def test_factory_get_aliases():
-    # Test 'distance', 'within', 'below' config keys
-    rf1 = get({"distance": 25, "unit": "miles"})
-    assert rf1._max_distance_nm == pytest.approx(25 * (1609.344 / 1852.0))
+def test_factory_get_canonical_keys():
+    rf = get({"max_distance": 25, "min_distance": 2, "unit": "miles"})
+    assert rf._max_distance_nm == pytest.approx(25 * (1609.344 / 1852.0))
+    assert rf._min_distance_nm == pytest.approx(2 * (1609.344 / 1852.0))
 
-    rf2 = get({"within": 10, "above": 2, "unit": "km"})
-    assert rf2._max_distance_nm == pytest.approx(10 * (1000.0 / 1852.0))
-    assert rf2._min_distance_nm == pytest.approx(2 * (1000.0 / 1852.0))
 
-    rf3 = get({"below": 30, "unit": "nm"})
-    assert rf3._max_distance_nm == pytest.approx(30.0)
+def test_factory_get_ignores_removed_synonyms():
+    # 'distance', 'within', 'below', 'above', 'units' were removed in favour of
+    # one spelling each (max_distance, min_distance, unit) — they no longer apply.
+    rf = get({"distance": 25, "within": 10, "below": 30, "above": 2, "units": "miles"})
+    assert rf._max_distance_nm is None
+    assert rf._min_distance_nm is None
+    assert rf._unit == "nm"

@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.adsbdb as adsbdb_module
+from modules import clear_module_pool, get_module
 from modules.adsbdb import AdsbdbEnricher, _RATE_60S
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
@@ -287,13 +287,12 @@ def test_callsign_normalised_to_trimmed_uppercase_filename(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# 11. Module-level shared instance — get() returns the same object each call
+# 11. Shared instance — the factory pools by (name, cfg), not the module
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def reset_shared_instance(tmp_path, monkeypatch):
-    saved = adsbdb_module._INSTANCE
-    adsbdb_module._INSTANCE = None
+def reset_module_pool(tmp_path, monkeypatch):
+    clear_module_pool()
 
     class _Squawk:
         data_dir = str(tmp_path)
@@ -303,18 +302,24 @@ def reset_shared_instance(tmp_path, monkeypatch):
 
     monkeypatch.setitem(__import__("sys").modules, "config", type("M", (), {"config": _Cfg()}))
     yield
-    adsbdb_module._INSTANCE = saved
+    clear_module_pool()
 
 
-def test_get_returns_shared_instance(reset_shared_instance):
-    first  = adsbdb_module.get({})
-    second = adsbdb_module.get({})
+def test_get_returns_shared_instance(reset_module_pool):
+    first  = get_module("adsbdb", {})
+    second = get_module("adsbdb", {})
     assert first is second
 
 
-def test_rate_limiter_is_shared_across_get_calls(reset_shared_instance):
-    first  = adsbdb_module.get({})
-    second = adsbdb_module.get({})
+def test_eight_chains_referencing_adsbdb_share_one_instance(reset_module_pool):
+    # Mirrors the TV-wall config: eight processor chains all naming "adsbdb".
+    instances = [get_module("adsbdb", {}) for _ in range(8)]
+    assert len({id(i) for i in instances}) == 1
+
+
+def test_rate_limiter_is_shared_across_get_calls(reset_module_pool):
+    first  = get_module("adsbdb", {})
+    second = get_module("adsbdb", {})
     now = time.monotonic()
     for _ in range(_RATE_60S):
         first._call_times.append(now - 1)

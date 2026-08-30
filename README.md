@@ -69,6 +69,8 @@ display               = "pushover"
 port = 7700
 ```
 
+This is a partial excerpt — a real config also needs `[squawk]`, `[storage]`, a `[modules.<name>]` block for every name listed above (empty if it takes no options), and a `[display.http.panels.screen]` block for the `screen` chain. A block referenced by name that doesn't exist fails at startup rather than silently defaulting. See [`config.toml.example`](config.toml.example) for a complete, loadable reference.
+
 `config.toml` itself is gitignored. `config.toml.example` is the reference kept in version control — keep it in sync when adding new keys.
 
 
@@ -93,14 +95,19 @@ def get(cfg: dict) -> AltitudeFloor:
 Wire it into the chain:
 
 ```toml
-[processor]
+[processors.watchlist]
+enabled = true
 modules = ["altitude_floor", "closest_filter"]
+display = "console"
 
 [modules.altitude_floor]
 min_feet = 10000
+
+[modules.closest_filter]
+[display.console]
 ```
 
-The module is discovered by name — no registration step. See [`docs/modules-guide.md`](docs/modules-guide.md) for the full contract.
+The module is discovered by name — no registration step. Every module and display named above needs its own block, even if empty — a chain referencing a block that doesn't exist fails at startup rather than silently skipping it. See [`docs/modules-guide.md`](docs/modules-guide.md) for the full contract.
 
 ## Tests
 
