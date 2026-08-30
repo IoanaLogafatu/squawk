@@ -16,12 +16,14 @@ Covers:
   8.  UNKNOWN-only writes — pre-set fields not overwritten; raw.adsbdb always overwritten
   9.  Rate limit honoured — no API call, fields UNKNOWN
   10. Callsign normalisation — trailing space trimmed, filename uppercased
+  13. In-memory memo — concurrent stampede prevention (brief-adsbdb-stampede.md)
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -29,7 +31,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import clear_module_pool, get_module
-from modules.adsbdb import AdsbdbEnricher, _RATE_60S
+from modules.adsbdb import AdsbdbEnricher, _MEMO_TTL_SECONDS, _RATE_60S
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
     AircraftRoute, AircraftVector, Airframe,
@@ -342,3 +344,131 @@ def test_fetch_denied_when_rate_limited_and_no_http(tmp_path, monkeypatch):
 
     assert enricher._fetch("4D2387", "RYR54NN") is None
     assert not called
+
+
+# ---------------------------------------------------------------------------
+# 13. In-memory memo — concurrent stampede prevention
+# ---------------------------------------------------------------------------
+
+def test_concurrent_lookups_produce_one_fetch(tmp_path, monkeypatch):
+    calls = []
+    call_lock = threading.Lock()
+
+    def fake_fetch(hex_id, callsign=None):
+        with call_lock:
+            calls.append((hex_id, callsign))
+        time.sleep(0.05)
+        return {"aircraft": {"manufacturer": "Boeing"}}
+
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    monkeypatch.setattr(enricher, "_fetch", fake_fetch)
+
+    results: list = [None, None, None]
+
+    def worker(i: int) -> None:
+        results[i] = enricher._get("40097D", "EZY123")
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(calls) == 1
+    assert all(r == results[0] for r in results)
+
+
+def test_memo_hit_avoids_disk(tmp_path, monkeypatch):
+    _mock_200(monkeypatch)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+
+    first = enricher._get("4D2387", None)
+    assert first is not None
+    cache_file = tmp_path / "4D2387.json"
+    assert cache_file.exists()
+    cache_file.unlink()
+
+    calls = []
+    monkeypatch.setattr(enricher, "_fetch", lambda *a, **kw: calls.append(1))
+
+    second = enricher._get("4D2387", None)
+    assert second is first
+    assert not calls
+
+
+def test_memo_expiry_re_enters_get_uncached(tmp_path, monkeypatch):
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+
+    calls = []
+    def fake_get_uncached(hex_id, callsign):
+        calls.append(1)
+        return {"aircraft": {"manufacturer": "Boeing"}}
+    monkeypatch.setattr(enricher, "_get_uncached", fake_get_uncached)
+
+    base = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: base)
+    enricher._get("4D2387", None)
+    assert len(calls) == 1
+
+    monkeypatch.setattr(time, "monotonic", lambda: base + _MEMO_TTL_SECONDS + 1)
+    enricher._get("4D2387", None)
+    assert len(calls) == 2
+
+
+def test_failures_are_memoised_across_concurrent_lookups(tmp_path, monkeypatch):
+    calls = []
+    call_lock = threading.Lock()
+
+    def fake_fetch(hex_id, callsign=None):
+        with call_lock:
+            calls.append(1)
+        time.sleep(0.05)
+        return None
+
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    monkeypatch.setattr(enricher, "_fetch", fake_fetch)
+
+    results: list = [object(), object(), object()]
+
+    def worker(i: int) -> None:
+        results[i] = enricher._get("40097D", None)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(calls) == 1
+    assert all(r is None for r in results)
+
+
+def test_different_callsigns_are_distinct_keys(tmp_path, monkeypatch):
+    calls = []
+    def fake_get_uncached(hex_id, callsign):
+        calls.append(callsign)
+        return {"aircraft": {"manufacturer": "Boeing"}}
+
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    monkeypatch.setattr(enricher, "_get_uncached", fake_get_uncached)
+
+    enricher._get("40097D", "EZY123")
+    enricher._get("40097D", None)
+
+    assert calls == ["EZY123", None]
+
+
+def test_sweep_bounds_the_dicts(tmp_path, monkeypatch):
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    monkeypatch.setattr(enricher, "_get_uncached", lambda hex_id, callsign: {"aircraft": {}})
+
+    enricher.process([_make_aircraft(callsign="RYR54NN")])
+    assert enricher._memo
+    assert enricher._key_locks
+
+    base = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: base + _MEMO_TTL_SECONDS + 1)
+
+    enricher.process([])   # process() sweeps first, even with nothing to enrich
+    assert enricher._memo == {}
+    assert enricher._key_locks == {}

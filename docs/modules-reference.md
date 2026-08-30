@@ -168,6 +168,7 @@ As noted in project learnings: this only reliably covers US-registered aircraft.
 Fills `airframe.manufacturer`, `airframe.registration`, `airframe.aircraft_type`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) via a single combined lookup against [adsbdb.com](https://www.adsbdb.com/).
 
 - **Cache-first:** one JSON file per hex under `<data_dir>/modules/adsbdb/`, 1-hour TTL. A cache hit costs zero API calls. 404s are cached as not-found markers so they aren't retried every cycle.
+- **In-memory cache (60 seconds).** Sits in front of the disk cache. When several chains process the same aircraft in the same cycle, one performs the lookup and the rest reuse its result. Failed and rate-limited lookups are cached for the same window so they are not retried by every chain.
 - **Rate-limited:** enforces adsbdb's published limits (512 calls/60s, 1024 calls/300s) via an in-memory deque; a call that would exceed either window is skipped for the cycle rather than blocking, leaving the field `UNKNOWN` until the next attempt.
 - **Skips gracefully** when `route.callsign` is `UNKNOWN` — no callsign means no route lookup, though airframe data can still arrive via `tar1090_db`.
 - **Run this after your filters.** Running it before means every aircraft in range triggers a lookup every cycle, burning through the rate budget for aircraft you're about to discard anyway.

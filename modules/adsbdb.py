@@ -44,6 +44,11 @@ Cache (cache-first, then API):
   Stale files trigger a re-fetch; on fetch failure, the stale file is
   used. 404 responses are cached as not-found markers so we don't retry.
 
+  In-memory cache (60 seconds), in front of the disk cache. When several
+  chains process the same aircraft in the same cycle, one performs the
+  lookup and the rest reuse its result. Failed and rate-limited lookups
+  are cached for the same window so they are not retried by every chain.
+
 Rate limits (rolling windows, enforced in-memory):
    512 calls / 60 seconds
   1024 calls / 300 seconds
@@ -76,6 +81,8 @@ _RATE_300S         = 1024
 _TIMEOUT_SECONDS   = 5
 _HEADERS           = {"User-Agent": "Squawk/1.1 (+https://github.com/IoanaLogafatu/squawk)"}
 
+_MEMO_TTL_SECONDS  = 60
+
 
 class AdsbdbEnricher(BaseModule):
 
@@ -84,7 +91,12 @@ class AdsbdbEnricher(BaseModule):
         self._call_times: deque[float] = deque()
         self._rate_lock = threading.Lock()
 
+        self._memo: dict[tuple[str, str | None], tuple[float, dict | None]] = {}
+        self._key_locks: dict[tuple[str, str | None], threading.Lock] = {}
+        self._memo_lock = threading.Lock()
+
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
+        self._sweep()
         for a in aircraft:
             hex_id = (a.meta.icao_hex or "").strip().upper()
             if not hex_id:
@@ -97,6 +109,39 @@ class AdsbdbEnricher(BaseModule):
         return aircraft
 
     def _get(self, hex_id: str, callsign: str | None) -> Optional[dict]:
+        key = (hex_id, callsign)
+        now = time.monotonic()
+
+        with self._memo_lock:
+            entry = self._memo.get(key)
+            if entry is not None and now - entry[0] <= _MEMO_TTL_SECONDS:
+                return entry[1]
+            key_lock = self._key_locks.setdefault(key, threading.Lock())
+
+        with key_lock:
+            # Re-check: another thread may have filled the memo while we waited
+            # on the lock, which is the whole point of this method.
+            with self._memo_lock:
+                entry = self._memo.get(key)
+                if entry is not None and time.monotonic() - entry[0] <= _MEMO_TTL_SECONDS:
+                    return entry[1]
+
+            result = self._get_uncached(hex_id, callsign)
+
+            with self._memo_lock:
+                self._memo[key] = (time.monotonic(), result)
+            return result
+
+    def _sweep(self) -> None:
+        now = time.monotonic()
+        with self._memo_lock:
+            dead = [k for k, (t, _) in self._memo.items()
+                    if now - t > _MEMO_TTL_SECONDS]
+            for k in dead:
+                del self._memo[k]
+                self._key_locks.pop(k, None)
+
+    def _get_uncached(self, hex_id: str, callsign: str | None) -> Optional[dict]:
         cache_path = self._cache_dir / f"{hex_id}.json"
         legacy_cache_path = (self._cache_dir / f"{callsign}.json") if callsign else None
 
