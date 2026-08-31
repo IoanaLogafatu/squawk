@@ -64,7 +64,7 @@ that yourself.
 
 1. Read its own config block from `config.ingestors[<key>]`.
 2. Return immediately if `enabled` is false.
-3. Resolve the storage backend once at startup via `get_storage(config.storage.method, config.squawk.data_dir)`.
+3. Resolve the storage backend once at startup via `get_storage(config.storage.backend, config.squawk.data_dir)`.
 4. Loop until interrupted, converting source data into `Aircraft` objects, applying `ingest_modules`, and calling `storage.save_aircraft_array()` each cycle.
 5. Tolerate `KeyboardInterrupt` cleanly when run as `__main__`.
 

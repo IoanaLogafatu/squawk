@@ -84,7 +84,7 @@ def _run_one_cycle(monkeypatch, tmp_path, ingest_modules):
 
     class _Cfg:
         class squawk: data_dir = str(tmp_path)
-        class storage: method = "disk_drive"
+        class storage: backend = "disk_drive"
         ingestors = {"personal_adsb": {
             "enabled": True,
             "poll_interval_seconds": 5,
@@ -94,7 +94,7 @@ def _run_one_cycle(monkeypatch, tmp_path, ingest_modules):
         modules = {}
 
     monkeypatch.setattr(personal_ingestor, "config", _Cfg)
-    monkeypatch.setattr("storage.get_storage", lambda method, data_dir: backend)
+    monkeypatch.setattr("storage.get_storage", lambda _backend, data_dir: backend)
 
     monkeypatch.setattr(
         personal_ingestor,

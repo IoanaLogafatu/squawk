@@ -59,13 +59,13 @@ _INSTANCES: dict[tuple[str, str], BaseStorage] = {}
 _INSTANCES_LOCK = threading.Lock()
 
 
-def get_storage(method: str, data_dir: Path) -> BaseStorage:
-    key = (method, str(data_dir))
+def get_storage(backend: str, data_dir: Path) -> BaseStorage:
+    key = (backend, str(data_dir))
     with _INSTANCES_LOCK:
         if key not in _INSTANCES:
             try:
-                module = importlib.import_module(f"storage.{method}")
+                module = importlib.import_module(f"storage.{backend}")
             except ModuleNotFoundError:
-                raise ValueError(f"Unknown storage method: {method!r}")
+                raise ValueError(f"Unknown storage backend: {backend!r}")
             _INSTANCES[key] = module.get(data_dir)
         return _INSTANCES[key]

@@ -252,7 +252,7 @@ def run(ingest_modules: list["BaseModule"]) -> None:
     observer_lon = config.observer.longitude
 
     from storage import get_storage
-    storage = get_storage(config.storage.method, config.squawk.data_dir)
+    storage = get_storage(config.storage.backend, config.squawk.data_dir)
 
     # Resume existing pass or start a new one
     state = _load_state()

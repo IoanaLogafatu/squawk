@@ -62,7 +62,7 @@ class ObserverConfig:
 
 @dataclass
 class StorageConfig:
-    method: str   # e.g. "disk_drive"
+    backend: str   # e.g. "disk_drive"
 
 
 @dataclass
@@ -117,8 +117,8 @@ def _load_storage(raw: dict, errors: list[str]) -> StorageConfig:
     storage = raw.get("storage")
     if not isinstance(storage, dict) or "backend" not in storage:
         errors.append('[storage] is missing a \'backend\' key — e.g. backend = "disk_drive".')
-        return StorageConfig(method="disk_drive")
-    return StorageConfig(method=storage["backend"])
+        return StorageConfig(backend="disk_drive")
+    return StorageConfig(backend=storage["backend"])
 
 
 def _load_ingestors(raw: dict, errors: list[str]) -> dict[str, dict]:

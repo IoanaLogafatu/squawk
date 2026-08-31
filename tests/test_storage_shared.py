@@ -67,18 +67,18 @@ def test_get_storage_returns_different_instance_for_different_dir(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 2. Unknown method raises every call
+# 2. Unknown backend raises every call
 # ---------------------------------------------------------------------------
 
-def test_get_storage_unknown_method_raises_first_call(tmp_path):
-    with pytest.raises(ValueError, match="Unknown storage method"):
+def test_get_storage_unknown_backend_raises_first_call(tmp_path):
+    with pytest.raises(ValueError, match="Unknown storage backend"):
         get_storage("oracle_db", tmp_path)
 
 
-def test_get_storage_unknown_method_raises_repeatedly(tmp_path):
+def test_get_storage_unknown_backend_raises_repeatedly(tmp_path):
     with pytest.raises(ValueError):
         get_storage("oracle_db", tmp_path)
-    with pytest.raises(ValueError, match="Unknown storage method"):
+    with pytest.raises(ValueError, match="Unknown storage backend"):
         get_storage("oracle_db", tmp_path)
 
 

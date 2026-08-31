@@ -121,7 +121,7 @@ def run(ingest_modules: list["BaseModule"]) -> None:
         return
 
     from storage import get_storage
-    storage = get_storage(config.storage.method, config.squawk.data_dir)
+    storage = get_storage(config.storage.backend, config.squawk.data_dir)
 
     last_seen: dict[str, datetime] = {}  # persists across poll cycles
     healthy:   dict[str, bool]     = {}  # persists across poll cycles

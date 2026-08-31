@@ -51,7 +51,7 @@ def test_config_has_ingestors_section():
 
 def test_config_has_storage_section():
     assert config.storage is not None
-    assert isinstance(config.storage.method, str) and config.storage.method
+    assert isinstance(config.storage.backend, str) and config.storage.backend
 
 
 def test_config_has_processors_section():

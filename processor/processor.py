@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 def run(proc_cfg: ProcessorConfig) -> None:
     cfg = proc_cfg
 
-    storage = get_storage(config.storage.method, config.squawk.data_dir)
+    storage = get_storage(config.storage.backend, config.squawk.data_dir)
     module_cfgs = config.modules
     filters = [get_module(name, module_cfgs.get(name, {})) for name in cfg.modules]
     display_cfg = dict(config.display.get(cfg.display, {}))

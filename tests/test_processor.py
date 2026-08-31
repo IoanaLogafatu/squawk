@@ -132,7 +132,7 @@ def test_processor_loads_storage_backend(tmp_path):
 
 
 def test_processor_unknown_storage_raises(tmp_path):
-    with pytest.raises(ValueError, match="Unknown storage method"):
+    with pytest.raises(ValueError, match="Unknown storage backend"):
         get_storage("oracle_db", tmp_path)
 
 

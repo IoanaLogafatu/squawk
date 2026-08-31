@@ -232,12 +232,12 @@ def test_concorde_applies_ingest_modules(monkeypatch, tmp_path):
 
     class _Cfg:
         class squawk: data_dir = str(tmp_path)
-        class storage: method = "disk_drive"
+        class storage: backend = "disk_drive"
         observer = _Observer()
         ingestors = {"concorde": {"enabled": True}}
 
     monkeypatch.setattr(concorde_ingestor, "config", _Cfg)
-    monkeypatch.setattr("storage.get_storage", lambda method, data_dir: backend)
+    monkeypatch.setattr("storage.get_storage", lambda _backend, data_dir: backend)
 
     class _StopAfterOneCycle(Exception): ...
     def _stop(_seconds):

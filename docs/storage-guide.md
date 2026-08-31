@@ -48,7 +48,7 @@ Both ingestors and the processor resolve it the same way:
 
 ```python
 from storage import get_storage
-storage = get_storage(config.storage.method, config.squawk.data_dir)
+storage = get_storage(config.storage.backend, config.squawk.data_dir)
 ```
 
 The dispatcher resolves the name to `storage/<name>/` and calls its `get(data_dir)` factory.
