@@ -159,7 +159,9 @@ def test_envelope_route(aircraft):
 def test_envelope_airframe(aircraft):
     assert aircraft.airframe.registration == "G-BOAC"
     assert aircraft.airframe.operator == "British Airways"
-    assert aircraft.airframe.aircraft_type == "Concorde"
+    assert aircraft.airframe.type_code        == "CONC"
+    assert aircraft.airframe.type_description == "Concorde"
+    assert aircraft.airframe.category         == "A5"
 
 
 def test_envelope_location_and_direction(aircraft):

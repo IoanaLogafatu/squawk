@@ -32,7 +32,7 @@ def _make_aircraft(hex_id: str, registration: str | None = None) -> Aircraft:
         location  = AircraftLocation(distance_nm=5.0),
         direction = AircraftVector(),
         route     = AircraftRoute(),
-        airframe  = Airframe(registration=registration, aircraft_type=None),
+        airframe  = Airframe(registration=registration),
         raw       = AircraftRaw(),
     )
 

@@ -32,7 +32,7 @@ def _ctx(tmp_path: Path) -> ModuleContext:
 def _make_aircraft(
     hex_id: str,
     registration: str | None = "G-AAAA",
-    aircraft_type: str | None = "B738",
+    type_description: str | None = "B738",
     origin_iata: str | None = "LHR",
     destination_iata: str | None = "JFK",
     callsign: str | None = "BAW123",
@@ -48,7 +48,7 @@ def _make_aircraft(
             destination_iata=destination_iata,
             airline_name=airline_name
         ),
-        airframe  = Airframe(registration=registration, aircraft_type=aircraft_type),
+        airframe  = Airframe(registration=registration, type_description=type_description),
         raw       = AircraftRaw(),
     )
 
@@ -89,7 +89,7 @@ def test_pushover_sends_notification_with_correct_details_and_format(tmp_path):
     a = _make_aircraft(
         "407F0D",
         registration="G-RUKK",
-        aircraft_type="737-8AS",
+        type_description="737-8AS",
         origin_iata="FEZ",
         destination_iata="STN",
         callsign="RYR1505",
@@ -144,7 +144,7 @@ def test_pushover_requires_all_5_facts(tmp_path):
         mock_post.assert_not_called()
 
         # Missing aircraft type
-        a4 = _make_aircraft("A4", aircraft_type=None)
+        a4 = _make_aircraft("A4", type_description=None)
         display.process([a4])
         mock_post.assert_not_called()
 
@@ -208,7 +208,7 @@ def test_pushover_hex_and_callsign_deduplication_allows_new_callsign_within_cool
     outbound = _make_aircraft(
         "407F0D",
         registration="G-RUKK",
-        aircraft_type="737-8AS",
+        type_description="737-8AS",
         origin_iata="STN",
         destination_iata="LGW",
         callsign="RYR1505",
@@ -218,7 +218,7 @@ def test_pushover_hex_and_callsign_deduplication_allows_new_callsign_within_cool
     return_flight = _make_aircraft(
         "407F0D",
         registration="G-RUKK",
-        aircraft_type="737-8AS",
+        type_description="737-8AS",
         origin_iata="LGW",
         destination_iata="EDI",
         callsign="RYR1606",

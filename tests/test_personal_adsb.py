@@ -122,6 +122,35 @@ def test_us_operator_is_unknown(snap1):
     assert ac.airframe.operator is None
 
 
+def test_converter_populates_type_code_description_and_category(snap1):
+    # The converter is the primary source for all three: they are already in
+    # the transmission, so the enrichers fill gaps rather than compete.
+    raw = _find_raw(snap1, "4078db")
+    assert (raw["t"], raw["desc"], raw["category"]) == ("AT76", "ATR-72-600", "A2")
+
+    ac = convert_aircraft(raw)
+    assert ac.airframe.type_code        == "AT76"
+    assert ac.airframe.type_description == "ATR-72-600"
+    assert ac.airframe.category         == "A2"
+
+
+def test_converter_leaves_absent_type_fields_as_unknown():
+    # A Mode S track carries none of them. Normal, not an error.
+    ac = convert_aircraft({"hex": "abc123", "seen": 1.0})
+    assert ac.airframe.type_code        is None
+    assert ac.airframe.type_description is None
+    assert ac.airframe.category         is None
+
+
+def test_converter_category_absent_but_type_present(snap1):
+    # Roughly a quarter of live records report no category while still
+    # carrying the DB-enrichment type fields.
+    raw = next(r for r in snap1["aircraft"] if "category" not in r and "t" in r)
+    ac = convert_aircraft(raw)
+    assert ac.airframe.category  is None
+    assert ac.airframe.type_code == raw["t"]
+
+
 def test_us_ownop_preserved_in_raw(snap2):
     # ownOp passes through to raw.payload so a module can pick it up
     raw = _find_raw(snap2, "abc1da")

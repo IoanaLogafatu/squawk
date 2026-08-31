@@ -119,9 +119,11 @@ def convert_aircraft(
     )
 
     airframe = Airframe(
-        registration  = raw.get("r",    UNKNOWN),
-        aircraft_type = raw.get("desc", UNKNOWN),
-        operator      = UNKNOWN,
+        registration     = raw.get("r",        UNKNOWN),
+        type_code        = raw.get("t",        UNKNOWN),
+        type_description = raw.get("desc",     UNKNOWN),
+        category         = raw.get("category", UNKNOWN),
+        operator         = UNKNOWN,
     )
 
     return Aircraft(

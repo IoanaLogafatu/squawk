@@ -49,7 +49,7 @@ class PushoverDisplay(BaseModule):
         airline = (a.route.airline_name or a.airframe.operator or "").strip()
         reg = (a.airframe.registration or "").strip()
         callsign = (a.route.callsign or "").strip().upper()
-        typ = (a.airframe.aircraft_type or "").strip()
+        typ = (a.airframe.type_description or a.airframe.type_code or "").strip()
         origin = (a.route.origin_iata or "").strip()
         dest = (a.route.destination_iata or "").strip()
 

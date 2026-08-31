@@ -124,12 +124,30 @@ class Airframe:
 
     operator — Registered owner of the airframe (e.g. "Malta Air"). Separate from
                airline_name on AircraftRoute, which is who is flying it this flight.
+
+    type_code vs type_description — the designator is machine-readable and stable
+               across sources; the description is prose and varies by source
+               ("AIRBUS A-320" / "Airbus A320-214"). Match on the code, display
+               the description. They are separate fields because a single one
+               with several writers ends up holding whichever shape answered last.
+
+    category — ICAO ADS-B emitter category, straight off the transmission:
+               A0 no information, A1 light (<15,500 lb), A2 small (15,500-75,000),
+               A3 large (75,000-300,000), A4 B757, A5 heavy (>300,000),
+               A6 high performance, A7 rotorcraft, B1 glider, B2 lighter-than-air,
+               B4 ultralight, B6 UAV, B7 space vehicle, C0-C7 surface vehicles
+               and obstacles.
+
+               Operator-configured, so occasionally wrong; A0 is common; Mode S-only
+               and MLAT tracks do not carry it at all. Treat absence as normal.
     """
 
-    registration:  Optional[str] = UNKNOWN   # Tail number, e.g. "G-EUPT"
-    aircraft_type: Optional[str] = UNKNOWN   # Human-readable type, e.g. "737MAX 8 200"
-    manufacturer:  Optional[str] = UNKNOWN   # e.g. "Boeing"
-    operator:      Optional[str] = UNKNOWN   # Registered owner, e.g. "Malta Air"
+    registration:     Optional[str] = UNKNOWN   # Tail number, e.g. "G-EUPT"
+    type_code:        Optional[str] = UNKNOWN   # ICAO designator, e.g. "A320", "B38M"
+    type_description: Optional[str] = UNKNOWN   # Human-readable, e.g. "AIRBUS A-320"
+    category:         Optional[str] = UNKNOWN   # ADS-B emitter category, e.g. "A3"
+    manufacturer:     Optional[str] = UNKNOWN   # e.g. "Boeing"
+    operator:         Optional[str] = UNKNOWN   # Registered owner, e.g. "Malta Air"
 
 
 @dataclass
@@ -207,10 +225,15 @@ def aircraft_from_dict(d: dict) -> Aircraft:
             airline_country     = rt.get("airline_country"),
         ),
         airframe=Airframe(
-            registration  = af["registration"],
-            aircraft_type = af["aircraft_type"],
-            manufacturer  = af.get("manufacturer"),
-            operator      = af["operator"],
+            registration     = af["registration"],
+            # .get() for the type/category fields: records written before they
+            # existed are still readable, and simply acquire them on the
+            # aircraft's next observation. No migration.
+            type_code        = af.get("type_code"),
+            type_description = af.get("type_description"),
+            category         = af.get("category"),
+            manufacturer     = af.get("manufacturer"),
+            operator         = af["operator"],
         ),
         raw=AircraftRaw(
             payload = d["raw"]["payload"],

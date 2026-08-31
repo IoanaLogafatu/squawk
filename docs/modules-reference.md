@@ -153,7 +153,11 @@ Enrichments fill `UNKNOWN` fields in place. Output length always equals input le
 
 #### `tar1090_db`
 
-Fills `airframe.registration` and `airframe.aircraft_type` from the [tar1090-db](https://github.com/wiedehopf/tar1090-db) aircraft CSV, keyed by ICAO hex. Only fills fields that are currently `None` — never overwrites data the source already supplied.
+Fills `airframe.registration`, `airframe.type_code` and `airframe.type_description` from the [tar1090-db](https://github.com/wiedehopf/tar1090-db) aircraft CSV, keyed by ICAO hex. Only fills fields that are currently `None` — never overwrites data the source already supplied.
+
+The CSV's type-code and description columns are carried through as two separate fields, each filled independently: a row with a code but no description still yields a code. They were once collapsed into a single value that preferred the description, which silently discarded the only machine-readable identifier of the two.
+
+The SQLite index records a schema version in `PRAGMA user_version`. An index built by an older Squawk has a different column count and is rebuilt from the CSV rather than read, so no manual cleanup is needed after an upgrade.
 
 - **Configured on the ingestor, not in a processor chain.** Listed under `modules = [...]` on `[ingestors.personal_adsb]`, so enrichment runs once per aircraft on ingest rather than once per chain per cycle. The enriched values are written into storage, so `data/tracked_aircraft/*.json` files carry registration and aircraft type on disk.
 - Downloads `aircraft.csv.gz` automatically on first run and refreshes it every 30 days.
@@ -165,7 +169,7 @@ As noted in project learnings: this only reliably covers US-registered aircraft.
 
 #### `adsbdb`
 
-Fills `airframe.manufacturer`, `airframe.registration`, `airframe.aircraft_type`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) from [adsbdb.com](https://www.adsbdb.com/).
+Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_description`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) from [adsbdb.com](https://www.adsbdb.com/).
 
 **Two independent lookups**, because the two halves fail independently:
 

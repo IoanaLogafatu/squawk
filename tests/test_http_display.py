@@ -48,7 +48,9 @@ def _make_aircraft(
     hex_id="AA1111",
     registration=None,
     callsign=None,
-    aircraft_type=None,
+    type_code=None,
+    type_description=None,
+    category=None,
     operator=None,
     airline_name=None,
     origin_iata=None,
@@ -64,7 +66,9 @@ def _make_aircraft(
         direction = AircraftVector(vertical_rate_fpm=vertical_rate_fpm),
         route     = AircraftRoute(callsign=callsign, airline_name=airline_name,
                                   origin_iata=origin_iata, destination_iata=destination_iata),
-        airframe  = Airframe(registration=registration, aircraft_type=aircraft_type, operator=operator),
+        airframe  = Airframe(registration=registration, type_code=type_code,
+                             type_description=type_description, category=category,
+                             operator=operator),
         raw       = AircraftRaw(),
     )
 
@@ -328,9 +332,34 @@ def test_render_falls_back_to_icao_hex():
     assert d["ident"] == "AA1111"
 
 
-def test_render_aircraft_type():
-    d = render_aircraft_dict(_make_aircraft(aircraft_type="BOEING 737-800"))
-    assert d["aircraft_type"] == "BOEING 737-800"
+def test_render_carries_all_three_airframe_fields():
+    # The payload ships the facts; the renderer decides which to show.
+    d = render_aircraft_dict(_make_aircraft(
+        type_code="B738", type_description="BOEING 737-800", category="A3",
+    ))
+    assert d["type_code"]        == "B738"
+    assert d["type_description"] == "BOEING 737-800"
+    assert d["category"]         == "A3"
+    assert "aircraft_type" not in d
+
+
+def test_render_type_fields_are_null_when_absent():
+    # Mode S and MLAT tracks carry no category. Normal, not an error.
+    d = render_aircraft_dict(_make_aircraft())
+    assert d["type_code"]        is None
+    assert d["type_description"] is None
+    assert d["category"]         is None
+
+
+def test_page_renderer_prefers_description_then_falls_back_to_code():
+    port = _free_port()
+    HttpDisplay({"port": port, "chain_name": "t"})
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/")
+
+    # The card label takes the description first, the designator second.
+    assert "a.type_description || a.type_code || 'Unknown Airframe'" in body
+    assert "a.aircraft_type" not in body
 
 
 def test_render_altitude_ground():

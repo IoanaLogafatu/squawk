@@ -47,7 +47,7 @@ The file contains a single snapshot of all currently-tracked aircraft. Top-level
 | `lon` | Longitude (° decimal) | Optional | `-1.426620` |
 | `squawk` | Mode A transponder code (4-digit octal, as a string) | Optional | `"5310"` |
 | `emergency` | Emergency state: `none`, `general`, `lifeguard`, `minfuel`, `nordo`, `unlawful`, `downed`, `reserved` | Optional | `"none"` |
-| `category` | Aircraft category code: `A0`–`A7`, `B0`–`B7`, `C0`–`C7`, `D0`–`D7` (e.g. A3 = Large, A5 = Heavy, A7 = Rotorcraft, B1 = Glider, B6 = UAV) | Optional | `"A3"` |
+| `category` | ICAO ADS-B emitter category — see the table below | Optional | `"A3"` |
 | `nav_qnh` | Altimeter pressure setting reported by aircraft (hPa) | Optional | `1013.6` |
 | `nav_altitude_mcp` | Selected altitude on the autopilot panel (MCP/FCU) (feet) | Optional | `20000` |
 | `nav_altitude_fms` | Selected altitude in the Flight Management System (feet) | Optional | `20000` |
@@ -73,6 +73,30 @@ The file contains a single snapshot of all currently-tracked aircraft. Top-level
 | `rssi` | Recent average signal power (dBFS, always negative) | Required | `-23.7` |
 | `r_dst` | *(readsb extension)* Distance from receiver (nautical miles) | Optional | `25.533` |
 | `r_dir` | *(readsb extension)* Bearing from receiver (° true) | Optional | `276.4` |
+
+## Emitter category (`category`)
+
+Mapped to `airframe.category`. It answers "what kind of aircraft is this" directly, which altitude only approximates — a bizjet at 30,000 ft is not an airliner, and only the category says so.
+
+| Code | Meaning |
+|---|---|
+| `A0` | No information |
+| `A1` | Light — under 15,500 lb |
+| `A2` | Small — 15,500 to 75,000 lb |
+| `A3` | Large — 75,000 to 300,000 lb |
+| `A4` | High-vortex large (B757) |
+| `A5` | Heavy — over 300,000 lb |
+| `A6` | High performance — over 5g and over 400 kt |
+| `A7` | Rotorcraft |
+| `B1` | Glider / sailplane |
+| `B2` | Lighter-than-air |
+| `B3` | Parachutist / skydiver |
+| `B4` | Ultralight / hang-glider / paraglider |
+| `B6` | UAV |
+| `B7` | Space / trans-atmospheric vehicle |
+| `C0`–`C7` | Surface vehicles and fixed obstacles (emergency and service vehicles, tethered balloons, point obstacles) |
+
+**Treat absence as normal, not as an error.** The value is configured by the operator on the transponder, so it is occasionally wrong; `A0` ("no information") is common; and Mode S-only and MLAT tracks do not carry it at all. In a live snapshot roughly three-quarters of aircraft reported a usable value. Anything consuming it needs a sensible answer for "unknown".
 
 ## Notes
 

@@ -81,7 +81,9 @@ def render_aircraft_dict(a: Aircraft) -> dict:
         "registration":        a.airframe.registration,
         "callsign":            a.route.callsign,
         "icao_hex":            a.meta.icao_hex,
-        "aircraft_type":       a.airframe.aircraft_type or "—",
+        "type_code":           a.airframe.type_code,
+        "type_description":    a.airframe.type_description,
+        "category":            a.airframe.category,
         "manufacturer":        a.airframe.manufacturer or None,
         "airline":             a.route.airline_name or None,
         "route":               route,
@@ -724,8 +726,9 @@ function renderCard(panel) {
   }
 
   const vrateClass = a.vrate === '↑' ? 'up' : a.vrate === '↓' ? 'down' : 'level';
-  const airlineStr = a.airline ? `<span class="airline-tag">${esc(a.airline)}</span> • ` : '';
-  const typeStr = esc(a.aircraft_type || 'Unknown Airframe');
+  // Description first, designator as the fallback: the prose reads better on a
+  // wall, but a code is far better than nothing.
+  const typeLabel = esc(a.type_description || a.type_code || 'Unknown Airframe');
 
   let routeHtml = '';
   if (a.origin_iata || a.destination_iata) {
@@ -760,7 +763,7 @@ function renderCard(panel) {
       <div class="aircraft-main">
         <div class="breed-line">
           ${a.airline ? `<span class="airline-tag">${esc(a.airline)}</span> ` : ''}
-          <span class="breed-tag">${esc(a.aircraft_type || 'Unknown Airframe')}</span>
+          <span class="breed-tag">${typeLabel}</span>
         </div>
         <div class="ident-row">
           <span class="ident">${esc(a.ident)}</span>

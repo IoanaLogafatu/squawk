@@ -57,6 +57,19 @@ def test_new_airframe_manufacturer_defaults_to_unknown():
     assert _bare_aircraft().airframe.manufacturer is None
 
 
+def test_airframe_type_and_category_fields_default_to_unknown():
+    af = _bare_aircraft().airframe
+    assert af.type_code        is None
+    assert af.type_description is None
+    assert af.category         is None
+
+
+def test_airframe_has_no_aircraft_type_field():
+    # Removed, not aliased: one field with three writers and an ambiguous
+    # format is exactly what splitting these apart was meant to eliminate.
+    assert not hasattr(_bare_aircraft().airframe, "aircraft_type")
+
+
 def test_raw_adsbdb_defaults_to_empty_dict():
     assert _bare_aircraft().raw.adsbdb == {}
 
@@ -85,8 +98,11 @@ def test_aircraft_from_dict_round_trips_new_fields():
             airline_country     = "Ireland",
         ),
         airframe  = Airframe(
-            manufacturer  = "Boeing",
-            registration  = "9H-VUZ",
+            manufacturer     = "Boeing",
+            registration     = "9H-VUZ",
+            type_code        = "B38M",
+            type_description = "737MAX 8 200",
+            category         = "A3",
         ),
         raw       = AircraftRaw(
             adsbdb = {"aircraft": {"type": "B38M"}},
@@ -103,6 +119,9 @@ def test_aircraft_from_dict_round_trips_new_fields():
     assert r.route.airline_country     == "Ireland"
     assert r.airframe.manufacturer     == "Boeing"
     assert r.airframe.registration     == "9H-VUZ"
+    assert r.airframe.type_code        == "B38M"
+    assert r.airframe.type_description == "737MAX 8 200"
+    assert r.airframe.category         == "A3"
     assert r.raw.adsbdb                == {"aircraft": {"type": "B38M"}}
 
 
@@ -115,6 +134,11 @@ def test_aircraft_from_dict_backward_compat_old_snapshot():
     a = aircraft_from_dict(d)
 
     assert a.airframe.manufacturer     is None
+    # A snapshot written before these fields existed stays readable; the
+    # aircraft acquires them on its next observation. No migration.
+    assert a.airframe.type_code        is None
+    assert a.airframe.type_description is None
+    assert a.airframe.category         is None
     assert a.route.origin_name         is None
     assert a.route.origin_country      is None
     assert a.route.destination_name    is None

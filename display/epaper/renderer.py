@@ -94,7 +94,7 @@ def render(aircraft: Optional[Aircraft]) -> Image.Image:
 
     a = aircraft
     reg      = a.airframe.registration  or a.route.callsign or a.meta.icao_hex
-    typ      = a.airframe.aircraft_type or ""
+    typ      = a.airframe.type_description or a.airframe.type_code or ""
     callsign = (a.route.callsign or "").strip().upper()
     airline  = a.route.airline_name     or a.airframe.operator or ""
     dist     = a.location.distance_nm

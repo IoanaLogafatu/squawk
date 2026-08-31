@@ -47,7 +47,9 @@ SOURCE_NAME     = "Concorde"
 ICAO_HEX        = "400F6A"
 REGISTRATION    = "G-BOAC"
 OPERATOR        = "British Airways"
-AIRCRAFT_TYPE   = "Concorde"
+TYPE_CODE       = "CONC"        # ICAO designator for the Aerospatiale/BAC Concorde
+TYPE_DESCRIPTION = "Concorde"
+CATEGORY        = "A5"          # Heavy (>300,000 lb)
 CALLSIGN        = "SPEEDBIRD002"
 SPEED_KNOTS     = 300.0
 ALTITUDE_FEET   = 5000
@@ -222,9 +224,11 @@ def _build_aircraft(lat: float, lon: float, distance_nm: float, track: float) ->
     )
 
     airframe = Airframe(
-        registration  = REGISTRATION,
-        aircraft_type = AIRCRAFT_TYPE,
-        operator      = OPERATOR,
+        registration     = REGISTRATION,
+        type_code        = TYPE_CODE,
+        type_description = TYPE_DESCRIPTION,
+        category         = CATEGORY,
+        operator         = OPERATOR,
     )
 
     return Aircraft(

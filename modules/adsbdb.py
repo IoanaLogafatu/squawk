@@ -409,8 +409,12 @@ class AdsbdbEnricher(BaseModule):
             aircraft.airframe.manufacturer = ac["manufacturer"]
         if aircraft.airframe.registration is None and ac.get("registration"):
             aircraft.airframe.registration = ac["registration"]
+        # The only unguarded write in this method, and deliberately so: adsbdb's
+        # description ("737MAX 8 200") is preferred over tar1090's ("BOEING
+        # 737-800 MAX"). It is safe to prefer because it can no longer destroy
+        # the ICAO designator — that lives in type_code, which this never writes.
         if ac.get("type"):
-            aircraft.airframe.aircraft_type = ac["type"]
+            aircraft.airframe.type_description = ac["type"]
         if aircraft.airframe.operator is None and ac.get("registered_owner"):
             aircraft.airframe.operator = ac["registered_owner"]
 

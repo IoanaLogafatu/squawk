@@ -54,13 +54,13 @@ def _ctx(tmp_path: Path) -> ModuleContext:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_aircraft(hex_id: str, distance_nm=None, registration=None, aircraft_type=None, callsign=None) -> Aircraft:
+def _make_aircraft(hex_id: str, distance_nm=None, registration=None, type_description=None, callsign=None) -> Aircraft:
     return Aircraft(
         meta      = AircraftMeta(icao_hex=hex_id, ingestor="test", reception_type="adsb_icao"),
         location  = AircraftLocation(distance_nm=distance_nm),
         direction = AircraftVector(),
         route     = AircraftRoute(callsign=callsign),
-        airframe  = Airframe(registration=registration, aircraft_type=aircraft_type),
+        airframe  = Airframe(registration=registration, type_description=type_description),
         raw       = AircraftRaw(),
     )
 
@@ -188,9 +188,9 @@ def test_epaper_format_country_and_route():
 
 
 def test_epaper_line_2_format():
-    a = _make_aircraft("AA1111", registration="G-EZOK", aircraft_type="Airbus A320", callsign="EZY18ZQ")
+    a = _make_aircraft("AA1111", registration="G-EZOK", type_description="Airbus A320", callsign="EZY18ZQ")
     callsign = (a.route.callsign or "").strip().upper()
-    typ = a.airframe.aircraft_type or ""
+    typ = a.airframe.type_description or ""
     cs_str = f"[{callsign}] " if callsign else ""
     typ_line = f"{cs_str}{typ}".strip()
     assert typ_line == "[EZY18ZQ] Airbus A320"
@@ -202,7 +202,7 @@ def test_epaper_line_2_format():
 # ===========================================================================
 
 def test_console_display_prints_registration_and_type(capsys):
-    a = _make_aircraft("AA1111", registration="G-TEST", aircraft_type="A320")
+    a = _make_aircraft("AA1111", registration="G-TEST", type_description="A320")
     ConsoleDisplay().process([a])
     out = capsys.readouterr().out
     assert "G-TEST" in out

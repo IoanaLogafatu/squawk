@@ -101,6 +101,29 @@ def _resp(status_code=200, payload=None) -> _Resp:
     return _Resp(status_code, payload)
 
 
+def test_adsbdb_writes_description_and_never_the_type_code(tmp_path, monkeypatch):
+    # adsbdb's string is the better display value and is preferred over
+    # whatever is already there — but it must not touch the designator.
+    _mock_endpoints(monkeypatch)
+    a = _make_aircraft(callsign="RYR54NN")
+    a.airframe.type_code        = "B38M"
+    a.airframe.type_description = "BOEING 737 MAX 8"
+
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert a.airframe.type_description == "737MAX 8 200"   # overwritten, deliberately
+    assert a.airframe.type_code        == "B38M"           # untouched
+
+
+def test_adsbdb_does_not_invent_a_type_code(tmp_path, monkeypatch):
+    _mock_endpoints(monkeypatch)
+    a = _make_aircraft(callsign="RYR54NN")
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert a.airframe.type_description == "737MAX 8 200"
+    assert a.airframe.type_code        is None
+
+
 def _mock_endpoints(monkeypatch, aircraft=None, route=None, calls=None):
     """Route each endpoint to its own canned response.
 
@@ -252,7 +275,7 @@ def test_cache_miss_fetch_writes_caches_and_populates_fields(tmp_path, monkeypat
 
     assert a.airframe.manufacturer     == "Boeing"
     assert a.airframe.registration     == "9H-VUZ"
-    assert a.airframe.aircraft_type    == "737MAX 8 200"
+    assert a.airframe.type_description == "737MAX 8 200"
     assert a.airframe.operator         == "Malta Air"
     assert a.route.origin_iata         == "REU"
     assert a.route.origin_name         == "Reus Airport"

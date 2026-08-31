@@ -46,8 +46,8 @@ class ConsoleDisplay(BaseModule):
             print("  ○ no aircraft")
         else:
             a   = aircraft[0]
-            reg = a.static.registration  or "???"
-            typ = a.static.aircraft_type or "???"
+            reg = a.airframe.registration or "???"
+            typ = a.airframe.type_description or a.airframe.type_code or "???"
             print(f"{reg}  {typ}")
         return aircraft
 ```

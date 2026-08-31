@@ -33,7 +33,8 @@ def _signature(a: Optional[Aircraft]) -> tuple:
     vr = a.direction.vertical_rate_fpm or 0
     return (
         a.airframe.registration,
-        a.airframe.aircraft_type,
+        a.airframe.type_description,
+        a.airframe.type_code,
         a.airframe.operator,
         a.route.callsign,
         a.route.origin_iata,
