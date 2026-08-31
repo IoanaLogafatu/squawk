@@ -11,6 +11,9 @@ cycle, records not updated within STALE_SECONDS are deleted.
 retrieve_aircraft_array() also filters by staleness, so the processor always
 sees only current aircraft regardless of when cleanup last ran.
 
+After expiry, the surviving record count is published as system state under
+'tracked', so displays can report the size of the pot without polling storage.
+
 Atomic writes (temp-and-replace) prevent partial reads.
 """
 
@@ -21,6 +24,7 @@ import threading
 import time
 from pathlib import Path
 
+import system
 from schemas.encoder import SquawkEncoder
 from storage import BaseStorage, STALE_SECONDS
 from schemas.aircraft import Aircraft
@@ -59,6 +63,7 @@ class DiskDriveStorage(BaseStorage):
                         pass
 
         self._expire_stale()
+        system.set("tracked", len(self.list_aircraft_hex_ids()))
 
     def _expire_stale(self) -> None:
         """Delete aircraft files not updated within STALE_SECONDS."""

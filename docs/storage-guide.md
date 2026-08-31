@@ -8,11 +8,25 @@ ingestor → storage ← processor → modules → display
 
 ## Responsibilities
 
-A storage backend owns three things:
+A storage backend owns four things:
 
 - **Upsert-if-newer writes** — a record is only written if its `meta.observed_at` is more recent than what is already on disk for that ICAO hex. This makes multi-ingestor writes safe without any coordination between ingestors.
 - **Staleness expiry** — records not updated within `STALE_SECONDS` (60 seconds, defined in `storage/__init__.py`) are automatically cleaned up. This is triggered internally on every write, not by the caller.
 - **Fresh reads** — `retrieve_aircraft_array()` only returns records that are within the staleness window, so the processor always sees current aircraft regardless of when cleanup last ran.
+- **Publishing `tracked`** — after saving and expiring, the backend publishes the surviving record count as `system.set("tracked", ...)`. Displays read it to report the size of the pot; nothing has to poll storage to find out.
+
+### Publishing `tracked`
+
+```python
+self._expire_stale()
+system.set("tracked", len(self.list_aircraft_hex_ids()))
+```
+
+Order matters: publish *after* expiry, so the number matches what a reader would actually get back. `list_aircraft_hex_ids()` already applies the staleness window and doesn't deserialise, so this costs a directory stat pass, not a parse.
+
+This is a backend contract rather than base-class behaviour — there is one backend, and building enforcement machinery for a second one that doesn't exist would be speculative. If a second backend ever lands, that is the moment to reconsider.
+
+System state is *published, not polled*: whoever owns a fact announces it, and displays render whatever was last announced. The rule that goes with it, stated in `system.py`: **displays read system state, filters do not.** A filter that branches on system state stops being reproducible from its config block, which is the property the module architecture exists to protect.
 
 ## The `STALE_SECONDS` constant
 
@@ -127,12 +141,13 @@ All fit the existing interface. None require the interface to change.
 2. **Add the factory:** `def get(data_dir: Path) -> YourStorage`.
 3. **Implement upsert-if-newer in `save_aircraft_array`.** Compare `meta.observed_at` before writing; only write if the incoming record is strictly newer than what is stored. A record with `observed_at = None` always writes.
 4. **Call `_expire_stale()` at the end of `save_aircraft_array`.** Expiry is internal — callers never trigger it directly.
-5. **Filter by staleness in `retrieve_aircraft_array` and `retrieve_aircraft`.** Return `None` / skip records older than `STALE_SECONDS`.
-6. **Make writes atomic.** Temp-and-replace, transactions, copy-on-write — whatever fits your medium.
-7. **Swallow write failures.** Log if you must, but don't raise. The pipeline will retry on the next cycle.
-8. **Return raw dicts from reads.** Don't reconstruct `Aircraft` — that's the caller's job.
-9. **Return `None` for missing or stale reads.** Not raise.
-10. **Clean up corrupt records.** If you read a record that's malformed, delete it. The next cycle will rewrite valid data.
+5. **Publish `tracked` immediately after expiring.** `system.set("tracked", len(self.list_aircraft_hex_ids()))` — after expiry, so the count matches what a reader would get.
+6. **Filter by staleness in `retrieve_aircraft_array` and `retrieve_aircraft`.** Return `None` / skip records older than `STALE_SECONDS`.
+7. **Make writes atomic.** Temp-and-replace, transactions, copy-on-write — whatever fits your medium.
+8. **Swallow write failures.** Log if you must, but don't raise. The pipeline will retry on the next cycle.
+9. **Return raw dicts from reads.** Don't reconstruct `Aircraft` — that's the caller's job.
+10. **Return `None` for missing or stale reads.** Not raise.
+11. **Clean up corrupt records.** If you read a record that's malformed, delete it. The next cycle will rewrite valid data.
 
 ## Testing
 

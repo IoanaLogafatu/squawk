@@ -181,39 +181,47 @@ cooldown_seconds = 7200                       # Cooldown per flight (hex + calls
 port = 7700                              # HTTP port for the web display
 
 # Panels are keyed by processor chain name. A chain named [processors.low_level]
-# is matched to [display.http.panels.low_level]. Missing blocks fall back to a
-# title-cased chain name and order 999.
+# is matched to [display.http.panels.low_level]; the block is required.
+#
+# `slot` is a fixed position in the 4x2 wall and is required — all eight slots
+# always render, and one with no chain assigned shows as UNASSIGNED rather than
+# closing the gap:
+#
+#     1  2  3  4
+#     5  6  7  8
+#
+# `title` is optional and falls back to a title-cased chain name.
 [display.http.panels.low_level]
 title = "Approach & Low (< 5k ft)"
-order = 1
+slot  = 1
 
 [display.http.panels.mid_level]
 title = "Mid Level (5k–15k ft)"
-order = 2
+slot  = 2
 
 [display.http.panels.upper_level]
 title = "Upper Level (15k–25k ft)"
-order = 3
+slot  = 3
 
 [display.http.panels.high_cruise]
 title = "High Cruise (> 25k ft)"
-order = 4
+slot  = 4
 
 [display.http.panels.closest_overhead]
 title = "Nearby (< 10 nm)"
-order = 5
+slot  = 5
 
 [display.http.panels.watchlist]
 title = "Watchlist Target"
-order = 6
+slot  = 6
 
 [display.http.panels.descending]
 title = "Inbound / Descending"
-order = 7
+slot  = 7
 
 [display.http.panels.climbing]
 title = "Outbound / Climbing"
-order = 8
+slot  = 8
 
 [display.epaper]
 port               = 7700   # HTTP port for the PNG preview page

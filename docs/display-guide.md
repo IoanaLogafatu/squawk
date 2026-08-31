@@ -72,13 +72,13 @@ class HttpDisplay(BaseModule):
         self.chain_name = str(cfg.get("chain_name", "default"))
         panel_cfg       = (cfg.get("panels", {}) or {}).get(self.chain_name, {})
         self.panel_title = str(panel_cfg.get("title", self.chain_name.replace("_", " ").title()))
-        self.panel_order = int(panel_cfg.get("order", 999))
+        self.slot        = int(panel_cfg.get("slot", 0))
         self._state = SharedState()
         server      = ThreadingHTTPServer(("", port), make_handler(self._state))
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        self._state.update(self.chain_name, self.panel_title, self.panel_order, aircraft)
+        self._state.update(self.chain_name, self.panel_title, self.slot, aircraft)
         return aircraft
 ```
 
@@ -94,20 +94,32 @@ port = 7700
 
 [display.http.panels.low_level]
 title = "Approach & Low (< 5k ft)"
-order = 1
+slot  = 1
 
 [display.http.panels.mid_level]
 title = "Mid Level (5k–15k ft)"
-order = 2
+slot  = 2
 ```
 
-Both `title` and `order` are optional and default to a title-cased chain name (`low_level` → `Low Level`) and order 999 respectively — but the block itself is required. A chain with `display = "http"` and no matching `[display.http.panels.<chain>]` block fails at startup rather than falling back silently, so a renamed chain can't orphan its panel unnoticed.
+The dashboard is a fixed 4×2 grid, matching the physical wall it is built for. `slot` names a position in it:
+
+```
+1  2  3  4
+5  6  7  8
+```
+
+All eight slots always render. Slot 4 is top-right whether or not slots 1–3 are occupied, so a chain that dies leaves a gap where it was instead of shuffling the survivors into new positions — on a wall, positional memory is worth more than a tidy layout. A slot with no chain assigned shows its number and `UNASSIGNED`; that is a normal state, not an error. It is distinct from `NO TARGET`, which means a chain is running and currently sees nothing.
+
+`slot` is **required**, and must be an integer from 1 to 8 that no other chain claims — a wrong or absent position is a visible defect on the wall, so the loader rejects it at startup. `title` is optional and falls back to a title-cased chain name (`low_level` → `Low Level`). The panel block itself is required too: a chain with `display = "http"` and no matching `[display.http.panels.<chain>]` block fails at startup rather than falling back silently, so a renamed chain can't orphan its panel unnoticed. A block still carrying the old `order` key is rejected with a message pointing at `slot`.
 
 Notable details:
 
 - `daemon=True` so the server thread dies when the pipeline shuts down.
 - `SharedState` is a small thread-safe pub/sub between the module thread (writer) and request handler threads (readers). HTTP clients are not the module's problem; they read from the shared state independently.
 - The payload sends the full aircraft list per panel — an empty chain is an empty list, not `null`.
+- Each panel carries `updated_epoch` (unix seconds). The page renders the age beside the callsign chip and dims the card once it stops advancing, so one hung chain among eight is visible.
+- The payload's top-level `system` key carries `system.snapshot()`; the header reads `tracked` from it to show `MONITORING n FLIGHTS`, and shows `MONITORING — FLIGHTS` before the first ingest cycle has published anything.
+- The link dot in the header is driven by `EventSource` state — green `LINK OK`, amber `RECONNECTING`, red `LINK DOWN` — with a text label beside it, because colour alone is a poor signal across a room. Only the healthy state animates.
 
 ### epaper — hardware, with throttling
 

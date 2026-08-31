@@ -10,10 +10,12 @@ Configured via [display.http] in config.toml:
 
     [display.http.panels.<chain_name>]
     title = "..."
-    order = 1
+    slot  = 1
 
-Each chain is matched to a panel block by chain name. Missing panel blocks
-fall back to a title-cased chain name and order 999.
+Each chain is matched to a panel block by chain name. `slot` is a fixed
+position in the 4x2 wall (1-4 across the top row, 5-8 across the bottom);
+the config loader requires it and rejects duplicates. `title` is optional
+and falls back to a title-cased chain name.
 """
 
 from __future__ import annotations
@@ -37,12 +39,9 @@ class HttpDisplay(BaseModule):
         self.chain_name = str(cfg.get("chain_name", "default"))
 
         panels = cfg.get("panels", {}) or {}
-        panel_cfg = panels.get(self.chain_name)
-        if panel_cfg is None:
-            print(f"  http display: no panel config for chain {self.chain_name!r} — using defaults")
-            panel_cfg = {}
+        panel_cfg = panels.get(self.chain_name, {})
         self.panel_title = str(panel_cfg.get("title", self.chain_name.replace("_", " ").title()))
-        self.panel_order = int(panel_cfg.get("order", 999))
+        self.slot = int(panel_cfg.get("slot", 0))
 
         with _SERVER_LOCK:
             if port not in _SERVERS:
@@ -59,7 +58,7 @@ class HttpDisplay(BaseModule):
         self._state = state
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        self._state.update(self.chain_name, self.panel_title, self.panel_order, aircraft)
+        self._state.update(self.chain_name, self.panel_title, self.slot, aircraft)
         return aircraft
 
 

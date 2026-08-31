@@ -232,12 +232,55 @@ def _check_http_panels(
     if not isinstance(panels, dict):
         panels = {}
 
+    claimed: dict[int, str] = {}   # slot -> the chain that got there first
+
     for name, p in processors.items():
-        if p.display == "http" and name not in panels:
+        if p.display != "http":
+            continue
+
+        if name not in panels:
             errors.append(
                 f"[processors.{name}] uses the http display but there is no "
                 f"[display.http.panels.{name}] block."
             )
+            continue
+
+        panel = panels[name]
+        if not isinstance(panel, dict):
+            errors.append(f"[display.http.panels.{name}] is not a table.")
+            continue
+
+        if "order" in panel:
+            errors.append(
+                f"[display.http.panels.{name}] has an 'order' key — rename it to "
+                "'slot'. Panels no longer sort; each one names a fixed position "
+                "in the 4x2 wall (1-4 across the top, 5-8 across the bottom)."
+            )
+
+        if "slot" not in panel:
+            errors.append(
+                f"[display.http.panels.{name}] is missing a 'slot' key — set an "
+                "integer from 1 to 8 giving its position in the 4x2 wall."
+            )
+            continue
+
+        slot = panel["slot"]
+        if isinstance(slot, bool) or not isinstance(slot, int) or not 1 <= slot <= 8:
+            errors.append(
+                f"[display.http.panels.{name}] has slot = {slot!r} — must be an "
+                "integer from 1 to 8."
+            )
+            continue
+
+        if slot in claimed:
+            errors.append(
+                f"[display.http.panels.{name}] claims slot {slot}, but "
+                f"[display.http.panels.{claimed[slot]}] already claims it — "
+                "each panel needs a slot of its own."
+            )
+            continue
+
+        claimed[slot] = name
 
 
 def _warn_unreferenced_blocks(

@@ -193,6 +193,7 @@ panel_title = "Legacy Panel"
 
 [display.http]
 [display.http.panels.legacy_chain]
+slot = 1
 """)
     loaded = load_config(cfg_file)
     p = loaded.processors["legacy_chain"]
@@ -301,6 +302,163 @@ port = 7700
 """)
     with pytest.raises(ConfigError, match="screen"):
         load_config(cfg_file)
+
+
+def test_http_panel_missing_slot_rejected(tmp_path):
+    cfg_file = _write(tmp_path, """
+[processors.screen]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.screen]
+title = "Screen"
+""")
+    with pytest.raises(ConfigError, match="slot"):
+        load_config(cfg_file)
+
+
+@pytest.mark.parametrize("bad_slot", [0, 9, -1, 100])
+def test_http_panel_slot_out_of_range_rejected(tmp_path, bad_slot):
+    cfg_file = _write(tmp_path, f"""
+[processors.screen]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.screen]
+slot = {bad_slot}
+""")
+    with pytest.raises(ConfigError, match="1 to 8"):
+        load_config(cfg_file)
+
+
+def test_http_panel_non_integer_slot_rejected(tmp_path):
+    cfg_file = _write(tmp_path, """
+[processors.screen]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.screen]
+slot = "1"
+""")
+    with pytest.raises(ConfigError, match="1 to 8"):
+        load_config(cfg_file)
+
+
+@pytest.mark.parametrize("good_slot", [1, 4, 5, 8])
+def test_http_panel_slot_in_range_accepted(tmp_path, good_slot):
+    cfg_file = _write(tmp_path, f"""
+[processors.screen]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.screen]
+slot = {good_slot}
+""")
+    assert load_config(cfg_file) is not None
+
+
+def test_http_panel_duplicate_slots_rejected_naming_both_chains(tmp_path):
+    cfg_file = _write(tmp_path, """
+[processors.alpha]
+enabled = true
+modules = []
+display = "http"
+
+[processors.beta]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.alpha]
+slot = 3
+
+[display.http.panels.beta]
+slot = 3
+""")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "alpha" in message
+    assert "beta" in message
+    assert "3" in message
+
+
+def test_http_panel_order_key_rejected_with_message_naming_slot(tmp_path):
+    # config.toml is gitignored, so it survives every code change that
+    # invalidates it. Say which key replaced 'order' rather than only that
+    # 'slot' is missing.
+    cfg_file = _write(tmp_path, """
+[processors.screen]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.screen]
+title = "Screen"
+order = 1
+""")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "order" in message
+    assert "slot" in message
+
+
+def test_http_eight_chains_in_eight_slots_accepted(tmp_path):
+    body = ""
+    for i in range(1, 9):
+        body += f"""
+[processors.chain_{i}]
+enabled = true
+modules = []
+display = "http"
+"""
+    body += '\n[display.http]\nport = 7700\n'
+    for i in range(1, 9):
+        body += f"""
+[display.http.panels.chain_{i}]
+title = "Chain {i}"
+slot = {i}
+"""
+    loaded = load_config(_write(tmp_path, body))
+    assert len(loaded.processors) == 8
+    panels = loaded.display["http"]["panels"]
+    assert sorted(p["slot"] for p in panels.values()) == list(range(1, 9))
+
+
+def test_http_panel_slot_check_ignores_non_http_chains(tmp_path):
+    # A chain on another display must not be dragged into slot validation.
+    cfg_file = _write(tmp_path, """
+[processors.screen]
+enabled = true
+modules = []
+display = "console"
+
+[display.console]
+""")
+    assert load_config(cfg_file) is not None
 
 
 def test_chain_missing_enabled_rejected(tmp_path):

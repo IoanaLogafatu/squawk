@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from typing import Optional
 
+import system
 from schemas.aircraft import Aircraft
 
 
@@ -109,16 +111,16 @@ class SharedState:
         self._subscribers: list[queue.Queue] = []
         self._panels: dict[str, dict] = {}
 
-    def update(self, panel_id: str, panel_title: str, panel_order: int,
+    def update(self, chain_name: str, panel_title: str, slot: int,
                aircraft: list[Aircraft]) -> None:
         with self._lock:
-            self._panels[panel_id] = {
-                "panel_id":   panel_id,
-                "title":      panel_title,
-                "order":      panel_order,
-                "aircraft":   [render_aircraft_dict(a) for a in aircraft],
-                "count":      len(aircraft),
-                "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
+            self._panels[chain_name] = {
+                "chain_name":    chain_name,
+                "title":         panel_title,
+                "slot":          slot,
+                "aircraft":      [render_aircraft_dict(a) for a in aircraft],
+                "count":         len(aircraft),
+                "updated_epoch": time.time(),
             }
             payload = self._get_payload()
 
@@ -132,6 +134,7 @@ class SharedState:
     def _get_payload(self) -> str:
         return json.dumps({
             "panels":    self._panels,
+            "system":    system.snapshot(),
             "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
         })
 
@@ -249,6 +252,7 @@ _PAGE = """\
     --accent-cyan: #22d3ee;
     --accent-amber: #f59e0b;
     --accent-emerald: #10b981;
+    --accent-red: #ef4444;
     --text-primary: #f8fafc;
     --text-muted: #94a3b8;
     --text-dim: #475569;
@@ -288,14 +292,43 @@ _PAGE = """\
     text-transform: uppercase;
   }
 
+  /* Link indicator — driven by EventSource state, never decorative.
+     Only the healthy state moves, so movement means something. */
   .radar-dot {
     width: clamp(10px, 1.2vw, 18px);
     height: clamp(10px, 1.2vw, 18px);
-    background-color: var(--accent-emerald);
+    background-color: var(--text-dim);
     border-radius: 50%;
+    flex: none;
+  }
+
+  .radar-dot.link-ok {
+    background-color: var(--accent-emerald);
     box-shadow: 0 0 12px var(--accent-emerald);
     animation: pulse 2s infinite ease-in-out;
   }
+
+  .radar-dot.link-reconnecting {
+    background-color: var(--accent-amber);
+    box-shadow: 0 0 12px var(--accent-amber);
+  }
+
+  .radar-dot.link-down {
+    background-color: var(--accent-red);
+    box-shadow: 0 0 12px var(--accent-red);
+  }
+
+  .link-label {
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+    font-size: clamp(0.7rem, 1vw, 1.2rem);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+
+  .link-label.link-ok { color: var(--accent-emerald); }
+  .link-label.link-reconnecting { color: var(--accent-amber); }
+  .link-label.link-down { color: var(--accent-red); }
 
   @keyframes pulse {
     0%, 100% { transform: scale(1); opacity: 1; }
@@ -316,80 +349,23 @@ _PAGE = """\
     font-weight: 700;
   }
 
-  /* Grid Layout for Panels */
+  /* Grid Layout for Panels — fixed 4x2, matching the physical wall.
+     Slots hold their position whether or not a chain is assigned to them. */
   #dashboard {
     flex: 1;
     display: grid;
     gap: 1.5vw;
     width: 100%;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 550px), 1fr));
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(2, 1fr);
   }
-
-  /* 2 panels: 2 columns */
-  .grid-2 {
-    grid-template-columns: 1fr 1fr !important;
-  }
-
-  /* 3 panels: 3 columns */
-  .grid-3 {
-    grid-template-columns: repeat(3, 1fr) !important;
-  }
-
-  /* 4 panels: 2x2 */
-  .grid-4 {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-
-  /* 5-6 panels: 3x2 */
-  .grid-6, .grid-5 {
-    grid-template-columns: repeat(3, 1fr) !important;
-    grid-template-rows: repeat(2, 1fr) !important;
-  }
-
-  /* 7-8 panels: 4x2 */
-  .grid-8, .grid-7 {
-    grid-template-columns: repeat(4, 1fr) !important;
-    grid-template-rows: repeat(2, 1fr) !important;
-  }
-
-  .grid-8 .panel-card, .grid-7 .panel-card, .grid-6 .panel-card, .grid-5 .panel-card {
-    padding: 1vw 1.2vw;
-    border-radius: clamp(8px, 1.1vw, 16px);
-  }
-
-  .grid-8 .breed-line, .grid-7 .breed-line {
-    font-size: clamp(1.1rem, 1.45vw, 2.2rem);
-    margin-bottom: 0.3vw;
-  }
-
-  .grid-8 .ident, .grid-7 .ident {
-    font-size: clamp(1.2rem, 1.65vw, 2.4rem);
-  }
-
-  .grid-8 .vrate, .grid-7 .vrate {
-    font-size: clamp(1.1rem, 1.5vw, 2.2rem);
-  }
-
-  .grid-8 .metric-val, .grid-7 .metric-val {
-    font-size: clamp(1rem, 1.35vw, 1.9rem);
-  }
-
-  .grid-8 .route-airports, .grid-7 .route-airports {
-    font-size: clamp(0.95rem, 1.3vw, 1.9rem);
-  }
-
-  .grid-8 .route-box, .grid-7 .route-box {
-    padding: 0.5vw 0.8vw;
-    margin: 0.5vw 0;
-  }
-
 
   /* Section Card */
   .panel-card {
     background: var(--bg-card);
     border: 1px solid var(--border-card);
-    border-radius: clamp(12px, 1.5vw, 24px);
-    padding: 1.8vw;
+    border-radius: clamp(8px, 1.1vw, 16px);
+    padding: 1vw 1.2vw;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -446,11 +422,11 @@ _PAGE = """\
   }
 
   .breed-line {
-    font-size: clamp(1.4rem, 2.2vw, 3.4rem);
+    font-size: clamp(1.1rem, 1.45vw, 2.2rem);
     font-weight: 800;
     color: #ffffff;
     line-height: 1.15;
-    margin-bottom: 0.4vw;
+    margin-bottom: 0.3vw;
   }
 
   .airline-tag {
@@ -471,7 +447,7 @@ _PAGE = """\
   }
 
   .ident {
-    font-size: clamp(1.6rem, 2.5vw, 3.8rem);
+    font-size: clamp(1.2rem, 1.65vw, 2.4rem);
     font-weight: 700;
     letter-spacing: 0.04em;
     line-height: 1;
@@ -480,7 +456,7 @@ _PAGE = """\
   }
 
   .vrate {
-    font-size: clamp(1.4rem, 2.2vw, 3.2rem);
+    font-size: clamp(1.1rem, 1.5vw, 2.2rem);
     font-weight: 700;
   }
 
@@ -505,15 +481,15 @@ _PAGE = """\
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: clamp(8px, 1vw, 16px);
-    padding: 1vw 1.2vw;
-    margin: 1vw 0;
+    padding: 0.5vw 0.8vw;
+    margin: 0.5vw 0;
   }
 
   .route-airports {
     display: flex;
     align-items: center;
     gap: 1vw;
-    font-size: clamp(1.2rem, 2vw, 2.8rem);
+    font-size: clamp(0.95rem, 1.3vw, 1.9rem);
     font-weight: 800;
     color: #fff;
     font-family: ui-monospace, monospace;
@@ -553,7 +529,7 @@ _PAGE = """\
   }
 
   .metric-val {
-    font-size: clamp(1.2rem, 1.9vw, 2.6rem);
+    font-size: clamp(1rem, 1.35vw, 1.9rem);
     font-weight: 800;
     font-family: ui-monospace, "Cascadia Code", monospace;
     color: #fff;
@@ -574,27 +550,64 @@ _PAGE = """\
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 25vh;
     color: var(--text-dim);
     text-align: center;
     gap: 0.8vw;
   }
 
-  .empty-icon {
-    font-size: clamp(2rem, 3.5vw, 4.5rem);
-    opacity: 0.4;
-    animation: rotate 8s linear infinite;
-  }
-
-  @keyframes rotate {
-    100% { transform: rotate(360deg); }
-  }
-
   .empty-text {
-    font-size: clamp(1rem, 1.5vw, 2rem);
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+    font-size: clamp(0.9rem, 1.3vw, 1.7rem);
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
+  }
+
+  /* Unassigned slot — no chain is configured for this position.
+     Distinct from a running chain that currently sees nothing (NO TARGET). */
+  .slot-empty::before {
+    display: none;
+  }
+
+  .slot-empty {
+    background: rgba(17, 23, 34, 0.45);
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.06);
+    justify-content: center;
+  }
+
+  .slot-number {
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+    font-size: clamp(1.6rem, 3vw, 4rem);
+    font-weight: 800;
+    color: var(--text-dim);
+    opacity: 0.5;
+    line-height: 1;
+  }
+
+  /* A chain that has stopped updating. The panel stays in its slot — the wall
+     never reflows — but stops looking like live data. */
+  .panel-card.stale {
+    opacity: 0.42;
+    filter: saturate(0.4);
+  }
+
+  .panel-age {
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+    font-size: clamp(0.6rem, 0.85vw, 1.05rem);
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .panel-card.stale .panel-age {
+    color: var(--accent-amber);
+  }
+
+  .panel-header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.6vw;
   }
 </style>
 </head>
@@ -602,24 +615,36 @@ _PAGE = """\
 
 <header>
   <div class="brand">
-    <div class="radar-dot"></div>
+    <div class="radar-dot" id="link-dot"></div>
+    <span class="link-label" id="link-label">CONNECTING</span>
     <span>Squawk Live Radar</span>
   </div>
   <div class="sys-info">
-    <span id="channel-count">2 CHANNELS</span>
+    <span id="monitoring">MONITORING — FLIGHTS</span>
+    <span>•</span>
+    <span id="channel-count">0 CHANNELS</span>
     <span>•</span>
     <span class="clock" id="clock">--:--:-- UTC</span>
   </div>
 </header>
 
 <main id="dashboard">
-  <div class="panel-card"><div class="empty-state"><div class="empty-icon">⎈</div><div class="empty-text">Connecting to Squawk...</div></div></div>
+  <div class="panel-card slot-empty"><div class="empty-state"><div class="empty-text">Connecting</div></div></div>
 </main>
 
 <script>
 const dashboard = document.getElementById('dashboard');
 const clockElem = document.getElementById('clock');
 const channelElem = document.getElementById('channel-count');
+const monitoringElem = document.getElementById('monitoring');
+const linkDot = document.getElementById('link-dot');
+const linkLabel = document.getElementById('link-label');
+
+const SLOTS = 8;
+
+// The client is not told each chain's poll interval, so a chain that has gone
+// quiet is judged against a flat threshold rather than three of its own cycles.
+const STALE_AFTER_SECONDS = 30;
 
 function esc(s) {
   if (s === null || s === undefined) return '';
@@ -637,21 +662,52 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+function ageSeconds(panel) {
+  if (!panel.updated_epoch) return null;
+  return Math.max(0, Math.floor(Date.now() / 1000 - panel.updated_epoch));
+}
+
+function ageText(secs) {
+  if (secs === null) return '';
+  if (secs < 60) return secs + 's ago';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + 'm ago';
+  return Math.floor(mins / 60) + 'h ago';
+}
+
+function renderEmptySlot(n) {
+  return `
+    <div class="panel-card slot-empty">
+      <div class="empty-state">
+        <div class="slot-number">${n}</div>
+        <div class="empty-text">Unassigned</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderCard(panel) {
-  const title = esc(panel.title || panel.panel_id || 'TRAFFIC');
+  const title = esc(panel.title || panel.chain_name || 'TRAFFIC');
   const list = panel.aircraft || [];
   const a = list.length > 0 ? list[0] : null;
 
+  const secs = ageSeconds(panel);
+  const stale = secs !== null && secs > STALE_AFTER_SECONDS;
+  const cardClass = stale ? 'panel-card stale' : 'panel-card';
+  const age = `<span class="panel-age">${esc(ageText(secs))}</span>`;
+
   if (!a) {
     return `
-      <div class="panel-card">
+      <div class="${cardClass}">
         <div class="panel-header">
           <span class="panel-badge">${title}</span>
-          <span class="panel-tag">NO TARGET</span>
+          <span class="panel-header-right">
+            ${age}
+            <span class="panel-tag">NO TARGET</span>
+          </span>
         </div>
         <div class="empty-state">
-          <div class="empty-icon">⎈</div>
-          <div class="empty-text">Scanning for traffic...</div>
+          <div class="empty-text">No Target</div>
         </div>
         <div class="metrics-grid">
           <div class="metric-item">
@@ -692,10 +748,13 @@ function renderCard(panel) {
   }
 
   return `
-    <div class="panel-card">
+    <div class="${cardClass}">
       <div class="panel-header">
         <span class="panel-badge">${title}</span>
-        <span class="panel-tag">${esc(a.callsign ? a.callsign : a.icao_hex)}</span>
+        <span class="panel-header-right">
+          ${age}
+          <span class="panel-tag">${esc(a.callsign ? a.callsign : a.icao_hex)}</span>
+        </span>
       </div>
 
       <div class="aircraft-main">
@@ -724,36 +783,72 @@ function renderCard(panel) {
   `;
 }
 
+let lastState = null;
+
+function renderPanels(state) {
+  const panels = state.panels || {};
+  const bySlot = {};
+  for (const k of Object.keys(panels)) {
+    const p = panels[k];
+    if (p && p.slot >= 1 && p.slot <= SLOTS) {
+      bySlot[p.slot] = p;
+    }
+  }
+
+  // Always eight cards. A dead chain leaves a gap where it was, rather than
+  // shuffling the seven survivors into new positions.
+  let html = '';
+  for (let slot = 1; slot <= SLOTS; slot++) {
+    html += bySlot[slot] ? renderCard(bySlot[slot]) : renderEmptySlot(slot);
+  }
+  dashboard.innerHTML = html;
+}
+
 function renderState(state) {
   if (!state) return;
+  lastState = state;
 
   if (state.timestamp) {
     clockElem.textContent = state.timestamp;
   }
 
-  const panels = state.panels || {};
-  const panelKeys = Object.keys(panels).sort((a, b) => {
-    const d = (panels[a].order ?? 999) - (panels[b].order ?? 999);
-    return d !== 0 ? d : a.localeCompare(b);
-  });
+  const tracked = (state.system || {}).tracked;
+  monitoringElem.textContent = (tracked === undefined || tracked === null)
+    ? 'MONITORING — FLIGHTS'
+    : `MONITORING ${tracked} FLIGHTS`;
 
-  if (panelKeys.length === 0) {
-    dashboard.innerHTML = '<div class="panel-card"><div class="empty-state"><div class="empty-icon">⎈</div><div class="empty-text">No traffic in range</div></div></div>';
-    return;
-  }
-
-  const count = panelKeys.length;
+  const count = Object.keys(state.panels || {}).length;
   channelElem.textContent = `${count} ${count === 1 ? 'CHANNEL' : 'CHANNELS'}`;
-  dashboard.className = `grid-${Math.min(count, 8)}`;
 
-  let html = '';
-  for (const k of panelKeys) {
-    html += renderCard(panels[k]);
-  }
-  dashboard.innerHTML = html;
+  renderPanels(state);
+}
+
+// Re-render on a timer as well as on message, so panel ages keep counting and
+// a chain that stops updating dims on its own without needing fresh data.
+setInterval(function() {
+  if (lastState) renderPanels(lastState);
+}, 5000);
+
+function setLink(cls, label) {
+  linkDot.className = 'radar-dot ' + cls;
+  linkLabel.className = 'link-label ' + cls;
+  linkLabel.textContent = label;
 }
 
 const es = new EventSource('/events');
+
+es.onopen = function() {
+  setLink('link-ok', 'LINK OK');
+};
+
+es.onerror = function() {
+  if (es.readyState === EventSource.CLOSED) {
+    setLink('link-down', 'LINK DOWN');
+  } else {
+    setLink('link-reconnecting', 'RECONNECTING');
+  }
+};
+
 es.onmessage = function(e) {
   try {
     const data = JSON.parse(e.data);
