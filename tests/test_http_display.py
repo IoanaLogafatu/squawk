@@ -351,6 +351,16 @@ def test_render_type_fields_are_null_when_absent():
     assert d["category"]         is None
 
 
+def test_render_sends_null_not_a_placeholder_for_unknown_type():
+    # An em-dash here would be truthy, so the renderer's own fallback could
+    # never fire and the card would show a bare dash. The display string is
+    # the renderer's job; Python sends the fact, or nothing.
+    d = render_aircraft_dict(_make_aircraft())
+    for key in ("type_code", "type_description", "category"):
+        assert d[key] is None, f"{key} must be null, not {d[key]!r}"
+        assert d[key] != "—"
+
+
 def test_page_renderer_prefers_description_then_falls_back_to_code():
     port = _free_port()
     HttpDisplay({"port": port, "chain_name": "t"})
@@ -358,8 +368,34 @@ def test_page_renderer_prefers_description_then_falls_back_to_code():
     _, body = _get(f"http://localhost:{port}/")
 
     # The card label takes the description first, the designator second.
-    assert "a.type_description || a.type_code || 'Unknown Airframe'" in body
+    assert "a.type_description || a.type_code || 'Unknown type'" in body
     assert "a.aircraft_type" not in body
+
+
+def test_page_renderer_shows_unknown_type_when_both_are_missing():
+    # Explicit text, not a dash: a dash on a wall panel reads as a rendering
+    # fault, where "Unknown type" reads as an aircraft that did not identify
+    # itself. There is exactly one fallback and it is reachable.
+    port = _free_port()
+    HttpDisplay({"port": port, "chain_name": "t"})
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/")
+
+    assert "'Unknown type'" in body
+    assert "Unknown Airframe" not in body
+
+
+def test_page_leaves_the_route_blank_rather_than_labelling_it_unknown():
+    # Only the airframe line gets explicit text. The route box is omitted
+    # entirely when there is no route — eight panels announcing UNKNOWN ROUTE
+    # reads worse than eight quiet gaps.
+    port = _free_port()
+    HttpDisplay({"port": port, "chain_name": "t"})
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/")
+
+    assert "UNKNOWN ROUTE" not in body.upper()
+    assert "if (a.origin_iata || a.destination_iata)" in body
 
 
 def test_render_altitude_ground():

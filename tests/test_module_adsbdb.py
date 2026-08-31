@@ -101,29 +101,6 @@ def _resp(status_code=200, payload=None) -> _Resp:
     return _Resp(status_code, payload)
 
 
-def test_adsbdb_writes_description_and_never_the_type_code(tmp_path, monkeypatch):
-    # adsbdb's string is the better display value and is preferred over
-    # whatever is already there — but it must not touch the designator.
-    _mock_endpoints(monkeypatch)
-    a = _make_aircraft(callsign="RYR54NN")
-    a.airframe.type_code        = "B38M"
-    a.airframe.type_description = "BOEING 737 MAX 8"
-
-    AdsbdbEnricher(cache_dir=tmp_path).process([a])
-
-    assert a.airframe.type_description == "737MAX 8 200"   # overwritten, deliberately
-    assert a.airframe.type_code        == "B38M"           # untouched
-
-
-def test_adsbdb_does_not_invent_a_type_code(tmp_path, monkeypatch):
-    _mock_endpoints(monkeypatch)
-    a = _make_aircraft(callsign="RYR54NN")
-    AdsbdbEnricher(cache_dir=tmp_path).process([a])
-
-    assert a.airframe.type_description == "737MAX 8 200"
-    assert a.airframe.type_code        is None
-
-
 def _mock_endpoints(monkeypatch, aircraft=None, route=None, calls=None):
     """Route each endpoint to its own canned response.
 
@@ -439,6 +416,29 @@ def test_not_found_in_one_space_does_not_suppress_the_other(tmp_path, monkeypatc
 # ===========================================================================
 # 8. UNKNOWN-only writes
 # ===========================================================================
+
+def test_adsbdb_writes_description_and_never_the_type_code(tmp_path, monkeypatch):
+    # adsbdb's string is the better display value and is preferred over
+    # whatever is already there — but it must not touch the designator.
+    _mock_endpoints(monkeypatch)
+    a = _make_aircraft(callsign="RYR54NN")
+    a.airframe.type_code        = "B38M"
+    a.airframe.type_description = "BOEING 737 MAX 8"
+
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert a.airframe.type_description == "737MAX 8 200"   # overwritten, deliberately
+    assert a.airframe.type_code        == "B38M"           # untouched
+
+
+def test_adsbdb_does_not_invent_a_type_code(tmp_path, monkeypatch):
+    _mock_endpoints(monkeypatch)
+    a = _make_aircraft(callsign="RYR54NN")
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert a.airframe.type_description == "737MAX 8 200"
+    assert a.airframe.type_code        is None
+
 
 def test_unknown_only_does_not_overwrite_preset_operator(tmp_path, monkeypatch):
     _mock_endpoints(monkeypatch)
@@ -821,3 +821,114 @@ def test_log_unresolved_writes_nothing_when_route_resolves(tmp_path, monkeypatch
     enricher.process([_make_aircraft(callsign="RYR54NN")])
 
     assert _unresolved_lines(tmp_path) == []
+
+
+def test_log_unresolved_dedups_across_memo_expiry(tmp_path, monkeypatch):
+    """One line per (hex, callsign) for the life of the process.
+
+    The dedup set is consulted where the line is written, not inside the
+    memo-guarded lookup, so a memo expiry that re-attempts the route and fails
+    again must not produce a second line. The lookup genuinely re-runs here —
+    both the memo and the on-disk marker are expired between cycles.
+    """
+    _mock_endpoints(monkeypatch, aircraft=_resp(404), route=_resp(404))
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+
+    for _ in range(4):
+        enricher._memo.clear()
+        enricher._key_locks.clear()
+        for cached in tmp_path.rglob("*.json"):
+            old = time.time() - (_ROUTE_TTL_SECONDS + 120)
+            os.utime(cached, (old, old))
+        enricher.process([_make_aircraft(callsign="SHT18A")])
+
+    assert len(_unresolved_lines(tmp_path)) == 1
+
+
+def test_log_unresolved_dedups_when_only_the_memo_expires(tmp_path, monkeypatch):
+    # The clock-advance form: memo TTL passes between cycles.
+    _mock_endpoints(monkeypatch, route=_resp(404))
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+
+    base = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: base)
+    enricher.process([_make_aircraft(callsign="SHT18A")])
+
+    monkeypatch.setattr(time, "monotonic", lambda: base + _MEMO_TTL_SECONDS + 5)
+    enricher.process([_make_aircraft(callsign="SHT18A")])
+
+    monkeypatch.setattr(time, "monotonic", lambda: base + 4 * 60)
+    enricher.process([_make_aircraft(callsign="SHT18A")])
+
+    assert len(_unresolved_lines(tmp_path)) == 1
+
+
+def test_log_unresolved_still_separates_distinct_callsigns_for_one_hex(tmp_path, monkeypatch):
+    # Dedup is on the pair, not the hex: a hex that changes callsign is a
+    # genuinely different lookup and gets its own line.
+    _mock_endpoints(monkeypatch, route=_resp(404))
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+
+    enricher.process([_make_aircraft(callsign="SHT18A", hex_id="4CA123")])
+    enricher.process([_make_aircraft(callsign="SHT19B", hex_id="4CA123")])
+
+    lines = _unresolved_lines(tmp_path)
+    assert len(lines) == 2
+    assert {l["callsign"] for l in lines} == {"SHT18A", "SHT19B"}
+    assert {l["hex"] for l in lines} == {"4CA123"}
+
+
+# ===========================================================================
+# 16. Non-ICAO addresses — readsb's '~' prefix
+# ===========================================================================
+
+def test_non_icao_address_triggers_no_http_call(tmp_path, monkeypatch):
+    # A '~' address is a TIS-B relay or anonymised target. There is no airframe
+    # behind it, so both lookups are skipped.
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    enricher.process([_make_aircraft(hex_id="~085ED5", callsign="ABC123")])
+
+    assert calls == []
+
+
+def test_non_icao_address_writes_no_cache_file(tmp_path, monkeypatch):
+    # A 404 would otherwise cache a marker keyed on something that is not an
+    # aircraft identifier, so the cache accumulates entries for things that
+    # cannot exist.
+    _mock_endpoints(monkeypatch, aircraft=_resp(404), route=_resp(404))
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    enricher.process([_make_aircraft(hex_id="~DC078E", callsign="ABC123")])
+
+    assert list(tmp_path.rglob("*.json")) == []
+
+
+def test_non_icao_address_writes_no_unresolved_line(tmp_path, monkeypatch):
+    # The log records gaps in adsbdb's data. A non-ICAO address was never a
+    # candidate, so logging it would record a decision Squawk made instead.
+    _mock_endpoints(monkeypatch, route=_resp(404))
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+    enricher.process([_make_aircraft(hex_id="~085ED5", callsign="ABC123")])
+    enricher.process([_make_aircraft(hex_id="~085ED5", callsign=None)])
+
+    assert _unresolved_lines(tmp_path) == []
+
+
+def test_non_icao_aircraft_passes_through_unchanged(tmp_path, monkeypatch):
+    # They are real contacts, just unidentifiable ones: still displayed, simply
+    # carrying no enrichment. Never dropped from the list.
+    _mock_endpoints(monkeypatch)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+
+    tilde  = _make_aircraft(hex_id="~085ED5", callsign="ABC123")
+    normal = _make_aircraft(callsign="RYR54NN")
+    result = enricher.process([tilde, normal])
+
+    assert len(result) == 2
+    assert result[0] is tilde
+    assert tilde.airframe.registration is None
+    assert tilde.raw.adsbdb == {}
+    # The real aircraft alongside it is still enriched.
+    assert normal.airframe.registration == "9H-VUZ"
+    assert normal.route.origin_iata     == "REU"

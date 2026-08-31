@@ -184,6 +184,7 @@ Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_descripti
 - **In-memory memo (60 seconds).** Sits in front of the disk cache, keyed separately per space. When several chains process the same aircraft in the same cycle, one performs each lookup and the rest reuse its result. Failed and rate-limited lookups are memoised for the same window so they are not retried by every chain.
 - **Rate-limited:** enforces adsbdb's published limits (512 calls/60s, 1024 calls/300s) via an in-memory deque; a call that would exceed either window is skipped for the cycle rather than blocking, leaving the field `UNKNOWN` until the next attempt.
 - **Skips the route lookup** when `route.callsign` is `UNKNOWN` — there is nothing to look up. The airframe lookup still runs, and airframe data can also arrive via `tar1090_db`.
+- **Skips non-ICAO addresses entirely.** readsb prefixes an address with `~` when it is not a real ICAO 24-bit address — TIS-B relays and anonymised targets. No airframe exists behind one, so neither lookup is attempted: the call would be a guaranteed miss whose 404 would cache a not-found marker keyed on something that is not an aircraft identifier. These contacts still flow through the pipeline and still display; they simply carry no enrichment. They are also **not** written to the unresolved log — see below.
 - **Run this after your filters.** Running it before means every aircraft in range triggers a lookup every cycle, burning through the rate budget for aircraft you're about to discard anyway.
 - **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `adsbdb` itself. Eight chains naming `adsbdb` share one cache and one rate limiter, which is what makes the rate limit meaningful across an installation rather than per chain.
 - **Licensing:** route data carries a non-commercial licence (David Taylor / Jim Mason). Runtime fetching is fine; the cache is gitignored and must never be committed to the repo.
@@ -197,6 +198,14 @@ Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_descripti
 - `no_callsign` — the aircraft has not transmitted identity, so there was nothing to look up.
 - `unknown_callsign` — adsbdb answered definitively that it holds no route. A real gap in its data, not fixable here.
 - `fetch_failed` — timeout, rate limit or non-404 error. Transient, not a data gap.
+
+**Expect `no_callsign` to dominate, and filter it out when reading.** It is routinely two-thirds of the file and it is noise: aircraft transmit position before identity, so each is logged once on arrival and then resolves a cycle or two later. A hex logged as `no_callsign` at 18:04 may well be enriched as `SHT19B` by 18:08. Suppressing it would mean tracking whether a hex later resolved — state and logic in service of tidiness — where filtering on read costs nothing:
+
+```
+grep unknown_callsign data/modules/adsbdb/route/unresolved.jsonl
+```
+
+Two lifetimes are deliberately kept apart here. The on-disk not-found marker **expires**, so a route absent from adsbdb today is retried tomorrow. The log line is written **once per run** per `(hex, callsign)`, checked where the line is written rather than inside the lookup, so a retry that fails again does not add a second line. Collapsing the two would either stop retrying or make the log uncountable. Note that the dedup set lives in memory: restarting Squawk legitimately re-logs aircraft still in range, so a burst of repeats sharing a timestamp is a restart, not a leak.
 
 It is a hand-read diagnostic with no rotation or size bound. If it grows enough to matter, that is itself a finding.
 

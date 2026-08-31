@@ -43,6 +43,9 @@ Endpoints — two, looked up independently:
 
 Skip when:
   meta.icao_hex is UNKNOWN — there is nothing to look up.
+  meta.icao_hex starts with '~' — readsb's marker for a non-ICAO
+  address (TIS-B relay, anonymised target). No airframe exists behind
+  one, so both lookups are skipped entirely.
   The route lookup is additionally skipped when route.callsign is
   UNKNOWN, which is the common case for aircraft that have not yet
   transmitted identity.
@@ -150,6 +153,21 @@ class AdsbdbEnricher(BaseModule):
             hex_id = (a.meta.icao_hex or "").strip().upper()
             if not hex_id:
                 continue
+
+            # readsb prefixes an address with '~' when it is not a real ICAO
+            # 24-bit address — TIS-B relays, anonymised targets. There is no
+            # airframe behind one and never will be, so a lookup is a
+            # guaranteed miss whose 404 would cache a not-found marker keyed on
+            # something that is not an aircraft identifier.
+            #
+            # Deliberately not logged as unresolved: the log records what adsbdb
+            # could not resolve, and a non-ICAO address was never a candidate.
+            # Logging it would record a decision Squawk made rather than a gap
+            # in adsbdb's data. These aircraft still flow through the pipeline
+            # and still display — they simply carry no enrichment.
+            if hex_id.startswith("~"):
+                continue
+
             callsign = (a.route.callsign or "").strip().upper() or None
 
             # Two independent lookups. Either may miss without affecting the
@@ -366,6 +384,12 @@ class AdsbdbEnricher(BaseModule):
         unknown_callsign — adsbdb answered, definitively, that it has no route
         fetch_failed     — timeout, rate limit or non-404 error; transient
         """
+        # Checked here, at the point of writing, not inside the memo-guarded
+        # lookup — so it holds for the life of the process rather than for one
+        # memo window. The two lifetimes are deliberately different: the
+        # on-disk not-found marker expires so the route is retried (a flight
+        # absent from adsbdb today may be there tomorrow), while the *logging*
+        # happens once per run. Collapsing them is the obvious wrong fix.
         seen_key = (hex_id, callsign)
         with self._unresolved_lock:
             if seen_key in self._unresolved_seen:

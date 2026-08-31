@@ -728,7 +728,7 @@ function renderCard(panel) {
   const vrateClass = a.vrate === '↑' ? 'up' : a.vrate === '↓' ? 'down' : 'level';
   // Description first, designator as the fallback: the prose reads better on a
   // wall, but a code is far better than nothing.
-  const typeLabel = esc(a.type_description || a.type_code || 'Unknown Airframe');
+  const typeLabel = esc(a.type_description || a.type_code || 'Unknown type');
 
   let routeHtml = '';
   if (a.origin_iata || a.destination_iata) {
