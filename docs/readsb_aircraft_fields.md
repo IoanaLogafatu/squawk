@@ -25,7 +25,7 @@ The file contains a single snapshot of all currently-tracked aircraft. Top-level
 | `r` | Registration (tail number) — *DB enrichment only* | Optional | `"EI-IHI"` |
 | `t` | Aircraft type code (ICAO) — *DB enrichment only* | Optional | `"B738"` |
 | `desc` | Aircraft type description — *DB enrichment only* | Optional | `"BOEING 737-800"` |
-| `dbFlags` | Bitfield: 1=military, 2=interesting, 4=PIA, 8=LADD — *DB enrichment only* | Optional | `0` |
+| `dbFlags` | Bitfield: 1=military, 2=interesting, 4=PIA, 8=LADD — see below — *DB enrichment only* | Optional | `0` |
 | `alt_baro` | Barometric altitude (feet). Can also be the string `"ground"` for aircraft on the ground | Optional | `24825` |
 | `alt_geom` | Geometric (GNSS/WGS84) altitude (feet) | Optional | `25650` |
 | `baro_rate` | Barometric vertical rate (ft/min, +ve = climb) | Optional | `-4608` |
@@ -97,6 +97,23 @@ Mapped to `airframe.category`. It answers "what kind of aircraft is this" direct
 | `C0`–`C7` | Surface vehicles and fixed obstacles (emergency and service vehicles, tethered balloons, point obstacles) |
 
 **Treat absence as normal, not as an error.** The value is configured by the operator on the transponder, so it is occasionally wrong; `A0` ("no information") is common; and Mode S-only and MLAT tracks do not carry it at all. In a live snapshot roughly three-quarters of aircraft reported a usable value. Anything consuming it needs a sensible answer for "unknown".
+
+## Database flags (`dbFlags`)
+
+Mapped to `airframe.db_flags`, stored as the raw integer rather than decoded booleans.
+
+| Bit | Value | Meaning | Effect in Squawk |
+|---|---|---|---|
+| 0 | 1 | Military | Descriptive only — nothing is suppressed |
+| 1 | 2 | Interesting | Descriptive only — nothing is suppressed |
+| 2 | 4 | PIA — Privacy ICAO Address | `adsbdb` skips **both** lookups |
+| 3 | 8 | LADD — FAA Limiting Aircraft Data Displayed | `adsbdb` skips the **route** lookup only |
+
+Two of these mean "do not look this aircraft up". **PIA** is a temporary address allocated to obscure identity, so the hex is not a stable identifier and neither lookup can succeed. **LADD** is an FAA programme through which an owner has formally requested that flight data not be displayed — asking a route API about one is wrong on its own terms, independent of what it costs. See the `adsbdb` entry in [modules-reference.md](modules-reference.md) for why LADD is asymmetric.
+
+`None` means "we don't know" and is **not** the same as `0` ("no flags set"). Only `0` is permission to treat an aircraft as unflagged; absence of information is not information. The field is absent whenever the receiver runs without `--db-file`, which is a normal configuration — in that case `tar1090_db` supplies the flags from its CSV instead.
+
+**The CSV column is not the integer.** `tar1090_db`'s `aircraft.csv` stores this as a little-endian bit string in which the character at index *i* is bit *i*: `'0010'` is PIA (4), `'0001'` is LADD (8), and `'11'` is military|interesting (3). It is neither decimal nor hex, and reading it as either yields plausible-looking wrong flags for every aircraft.
 
 ## Notes
 

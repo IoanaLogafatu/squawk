@@ -1,9 +1,9 @@
 """
 modules/tar1090_db.py
 
-Enriches Aircraft records with registration, ICAO type code and type
-description from the tar1090 aircraft database (aircraft.csv), a
-semicolon-delimited CSV.
+Enriches Aircraft records with registration, ICAO type code, type
+description and the dbFlags bitfield from the tar1090 aircraft database
+(aircraft.csv), a semicolon-delimited CSV.
 
 Only fills fields that are currently UNKNOWN (None) — never overwrites
 data already supplied by the source.
@@ -15,6 +15,10 @@ The type code and the description are both carried through as separate
 fields. They were once collapsed into one value, preferring the
 description, which threw away the only machine-readable identifier of
 the two.
+
+The flags column is a little-endian bit string, not a number — see
+_parse_db_flags. It feeds airframe.db_flags, which adsbdb consults to
+avoid looking up aircraft whose operator has requested suppression.
 
 The CSV is downloaded automatically from the tar1090-db GitHub release if it
 is missing or older than 30 days, then cached at:
@@ -45,8 +49,9 @@ _REFRESH_DAYS = 30
 # Bump when the aircraft table's shape changes. Stored in the database's
 # PRAGMA user_version; a mismatch forces a rebuild. Version 1 was the
 # two-column (reg, type_code) index where type_code actually held whichever
-# of the description or the code was present.
-_SCHEMA_VERSION = 2
+# of the description or the code was present; version 2 added the separate
+# description column; version 3 added flags.
+_SCHEMA_VERSION = 3
 
 
 class SQLiteTarDb:
@@ -55,20 +60,20 @@ class SQLiteTarDb:
         self._db_path = db_path
         self._local = threading.local()
 
-    def get(self, hex_code: str) -> tuple[str | None, str | None, str | None] | None:
+    def get(self, hex_code: str) -> tuple[str | None, str | None, str | None, int | None] | None:
         if not hasattr(self._local, "conn"):
             self._local.conn = sqlite3.connect(str(self._db_path), timeout=5)
             self._local.cursor = self._local.conn.cursor()
         self._local.cursor.execute(
-            "SELECT reg, type_code, description FROM aircraft WHERE hex = ?", (hex_code,)
+            "SELECT reg, type_code, description, flags FROM aircraft WHERE hex = ?", (hex_code,)
         )
         return self._local.cursor.fetchone()
 
 
 class Tar1090DbEnricher(BaseModule):
 
-    def __init__(self, db: dict[str, tuple[str | None, str | None, str | None]] | SQLiteTarDb | None = None) -> None:
-        # icao_hex (uppercase) → (registration, type_code, description)
+    def __init__(self, db: dict[str, tuple[str | None, str | None, str | None, int | None]] | SQLiteTarDb | None = None) -> None:
+        # icao_hex (uppercase) → (registration, type_code, description, db_flags)
         self._db = db
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
@@ -80,7 +85,7 @@ class Tar1090DbEnricher(BaseModule):
             row = self._db.get(a.meta.icao_hex)
             if row is None:
                 continue
-            reg, type_code, description = row
+            reg, type_code, description, db_flags = row
             if a.airframe.registration is None and reg:
                 a.airframe.registration = reg
             # Filled independently: a row may carry a code with no description.
@@ -88,7 +93,34 @@ class Tar1090DbEnricher(BaseModule):
                 a.airframe.type_code = type_code
             if a.airframe.type_description is None and description:
                 a.airframe.type_description = description
+            # `is not None`, not truthiness: 0 means "no flags set", which is a
+            # fact worth storing and is different from "we don't know".
+            if a.airframe.db_flags is None and db_flags is not None:
+                a.airframe.db_flags = db_flags
         return aircraft
+
+
+def _parse_db_flags(raw: str) -> int | None:
+    """Parse the CSV's flags column into the tar1090 dbFlags bitfield.
+
+    The column is a **little-endian bit string**, not a decimal or a hex
+    number: the character at index i is bit i. So '0010' is bit 2 (PIA),
+    '0001' is bit 3 (LADD), and '11' is bits 0|1 (military + interesting).
+    Trailing characters are padding and carry no meaning.
+
+    Reading it as decimal or hex silently produces plausible-looking wrong
+    flags for every aircraft, which is worse than having none. Verified
+    against the shipped database: bit 2 is set on 50,423 rows that are 100%
+    US-allocated (PIA addresses come from the US ICAO block by construction),
+    and bit 0 is 16x enriched among military airframe types.
+
+    Returns None when the column is empty or malformed — "we don't know",
+    which is not the same as 0, "no flags set".
+    """
+    s = raw.strip()
+    if not s or any(c not in "01" for c in s):
+        return None
+    return sum(1 << i for i, c in enumerate(s) if c == "1")
 
 
 def _needs_refresh(csv_path: Path) -> bool:
@@ -120,7 +152,7 @@ def _build_sqlite_db(csv_path: Path, db_path: Path) -> None:
     cur.execute("PRAGMA journal_mode = MEMORY")
     cur.execute(
         "CREATE TABLE aircraft "
-        "(hex TEXT PRIMARY KEY, reg TEXT, type_code TEXT, description TEXT)"
+        "(hex TEXT PRIMARY KEY, reg TEXT, type_code TEXT, description TEXT, flags INTEGER)"
     )
 
     batch = []
@@ -135,12 +167,13 @@ def _build_sqlite_db(csv_path: Path, db_path: Path) -> None:
             reg       = row[1].strip() or None
             type_code = row[2].strip() or None
             desc      = (row[4].strip() if len(row) > 4 else "") or None
-            batch.append((hex_code, reg, type_code, desc))
+            flags     = _parse_db_flags(row[3]) if len(row) > 3 else None
+            batch.append((hex_code, reg, type_code, desc, flags))
             if len(batch) >= 50000:
-                cur.executemany("INSERT OR REPLACE INTO aircraft VALUES (?, ?, ?, ?)", batch)
+                cur.executemany("INSERT OR REPLACE INTO aircraft VALUES (?, ?, ?, ?, ?)", batch)
                 batch = []
         if batch:
-            cur.executemany("INSERT OR REPLACE INTO aircraft VALUES (?, ?, ?, ?)", batch)
+            cur.executemany("INSERT OR REPLACE INTO aircraft VALUES (?, ?, ?, ?, ?)", batch)
     cur.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
     conn.commit()
     conn.close()
@@ -159,9 +192,9 @@ def _db_schema_version(db_path: Path) -> int:
         return 0
 
 
-def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None, str | None]]:
+def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None, str | None, int | None]]:
     """Legacy dictionary loader for testing."""
-    db: dict[str, tuple[str | None, str | None, str | None]] = {}
+    db: dict[str, tuple[str | None, str | None, str | None, int | None]] = {}
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f, delimiter=";")
         for row in reader:
@@ -174,8 +207,9 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None, str | No
             code     = sys.intern(code_raw) if code_raw else None
             desc_raw = (row[4].strip() if len(row) > 4 else "") or None
             desc     = sys.intern(desc_raw) if desc_raw else None
+            flags    = _parse_db_flags(row[3]) if len(row) > 3 else None
             if hex_code:
-                db[sys.intern(hex_code)] = (reg, code, desc)
+                db[sys.intern(hex_code)] = (reg, code, desc, flags)
     return db
 
 

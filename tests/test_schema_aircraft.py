@@ -64,6 +64,11 @@ def test_airframe_type_and_category_fields_default_to_unknown():
     assert af.category         is None
 
 
+def test_db_flags_defaults_to_unknown():
+    # None, not 0: "we don't know" is different from "no flags set".
+    assert _bare_aircraft().airframe.db_flags is None
+
+
 def test_airframe_has_no_aircraft_type_field():
     # Removed, not aliased: one field with three writers and an ambiguous
     # format is exactly what splitting these apart was meant to eliminate.
@@ -103,6 +108,7 @@ def test_aircraft_from_dict_round_trips_new_fields():
             type_code        = "B38M",
             type_description = "737MAX 8 200",
             category         = "A3",
+            db_flags         = 9,          # military | LADD
         ),
         raw       = AircraftRaw(
             adsbdb = {"aircraft": {"type": "B38M"}},
@@ -122,6 +128,7 @@ def test_aircraft_from_dict_round_trips_new_fields():
     assert r.airframe.type_code        == "B38M"
     assert r.airframe.type_description == "737MAX 8 200"
     assert r.airframe.category         == "A3"
+    assert r.airframe.db_flags         == 9
     assert r.raw.adsbdb                == {"aircraft": {"type": "B38M"}}
 
 
@@ -139,6 +146,7 @@ def test_aircraft_from_dict_backward_compat_old_snapshot():
     assert a.airframe.type_code        is None
     assert a.airframe.type_description is None
     assert a.airframe.category         is None
+    assert a.airframe.db_flags         is None
     assert a.route.origin_name         is None
     assert a.route.origin_country      is None
     assert a.route.destination_name    is None

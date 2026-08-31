@@ -140,12 +140,21 @@ class Airframe:
 
                Operator-configured, so occasionally wrong; A0 is common; Mode S-only
                and MLAT tracks do not carry it at all. Treat absence as normal.
+
+    db_flags — tar1090 bitfield: 1 military, 2 interesting, 4 PIA, 8 LADD.
+               Stored as the raw integer rather than decoded booleans; that is
+               what both sources supply and it round trips cleanly.
+
+               `None` means "we don't know" and is NOT the same as 0 ("no flags
+               set"). Only 0 is permission to treat an aircraft as unflagged —
+               absence of information is not information.
     """
 
     registration:     Optional[str] = UNKNOWN   # Tail number, e.g. "G-EUPT"
     type_code:        Optional[str] = UNKNOWN   # ICAO designator, e.g. "A320", "B38M"
     type_description: Optional[str] = UNKNOWN   # Human-readable, e.g. "AIRBUS A-320"
     category:         Optional[str] = UNKNOWN   # ADS-B emitter category, e.g. "A3"
+    db_flags:         Optional[int] = UNKNOWN   # tar1090 bitfield: 1 military, 2 interesting, 4 PIA, 8 LADD
     manufacturer:     Optional[str] = UNKNOWN   # e.g. "Boeing"
     operator:         Optional[str] = UNKNOWN   # Registered owner, e.g. "Malta Air"
 
@@ -232,6 +241,7 @@ def aircraft_from_dict(d: dict) -> Aircraft:
             type_code        = af.get("type_code"),
             type_description = af.get("type_description"),
             category         = af.get("category"),
+            db_flags         = af.get("db_flags"),
             manufacturer     = af.get("manufacturer"),
             operator         = af["operator"],
         ),

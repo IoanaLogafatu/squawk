@@ -153,11 +153,13 @@ Enrichments fill `UNKNOWN` fields in place. Output length always equals input le
 
 #### `tar1090_db`
 
-Fills `airframe.registration`, `airframe.type_code` and `airframe.type_description` from the [tar1090-db](https://github.com/wiedehopf/tar1090-db) aircraft CSV, keyed by ICAO hex. Only fills fields that are currently `None` — never overwrites data the source already supplied.
+Fills `airframe.registration`, `airframe.type_code`, `airframe.type_description` and `airframe.db_flags` from the [tar1090-db](https://github.com/wiedehopf/tar1090-db) aircraft CSV, keyed by ICAO hex. Only fills fields that are currently `None` — never overwrites data the source already supplied. A value from the receiver's own database therefore wins over the CSV, since it is what that receiver actually used.
 
 The CSV's type-code and description columns are carried through as two separate fields, each filled independently: a row with a code but no description still yields a code. They were once collapsed into a single value that preferred the description, which silently discarded the only machine-readable identifier of the two.
 
-The SQLite index records a schema version in `PRAGMA user_version`. An index built by an older Squawk has a different column count and is rebuilt from the CSV rather than read, so no manual cleanup is needed after an upgrade.
+**The flags column is a little-endian bit string, not a number.** The character at index *i* is bit *i*, so `'0010'` is PIA (4), `'0001'` is LADD (8) and `'11'` is military|interesting (3). Reading it as decimal or hex silently produces plausible-looking wrong flags for every aircraft, which is worse than having none. `db_flags` is filled when it is currently `None`, including when the parsed value is `0` — "no flags set" is a fact, distinct from "we don't know".
+
+The SQLite index records a schema version in `PRAGMA user_version` (currently **3**). An index built by an older Squawk has a different column count and is rebuilt from the CSV rather than read, so no manual cleanup is needed after an upgrade — and the rebuild fires on a version mismatch alone, without waiting for the CSV to change.
 
 - **Configured on the ingestor, not in a processor chain.** Listed under `modules = [...]` on `[ingestors.personal_adsb]`, so enrichment runs once per aircraft on ingest rather than once per chain per cycle. The enriched values are written into storage, so `data/tracked_aircraft/*.json` files carry registration and aircraft type on disk.
 - Downloads `aircraft.csv.gz` automatically on first run and refreshes it every 30 days.
@@ -184,6 +186,17 @@ Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_descripti
 - **In-memory memo (60 seconds).** Sits in front of the disk cache, keyed separately per space. When several chains process the same aircraft in the same cycle, one performs each lookup and the rest reuse its result. Failed and rate-limited lookups are memoised for the same window so they are not retried by every chain.
 - **Rate-limited:** enforces adsbdb's published limits (512 calls/60s, 1024 calls/300s) via an in-memory deque; a call that would exceed either window is skipped for the cycle rather than blocking, leaving the field `UNKNOWN` until the next attempt.
 - **Skips the route lookup** when `route.callsign` is `UNKNOWN` — there is nothing to look up. The airframe lookup still runs, and airframe data can also arrive via `tar1090_db`.
+- **Skips aircraft whose operator has requested suppression**, based on `airframe.db_flags`:
+
+  | Flag | Aircraft lookup | Route lookup | Logged? |
+  |---|---|---|---|
+  | PIA (4) | skipped | skipped | no line |
+  | LADD (8) | **runs** | skipped | `suppressed` |
+  | Military (1), Interesting (2) | runs | runs | n/a |
+
+  **PIA** is a temporary Privacy ICAO Address: it identifies no airframe, so neither lookup can succeed and it is treated exactly like a `~` address, log line included. **LADD** is the FAA's Limiting Aircraft Data Displayed programme, and the asymmetry is deliberate: LADD suppresses *flight data*, not the airframe record, which is often present. Skipping both lookups would throw away registration, type and operator that adsbdb gives for free — and this module has already seen the reverse case, where a 404 on the airframe still yielded a full route. The two fail independently and are skipped independently. Military and interesting are descriptive rather than privacy flags and suppress nothing.
+
+  Asking a route API about an aircraft whose operator has formally requested suppression is wrong on its own terms, independent of what it costs. `db_flags` of `None` suppresses nothing: absence of information is not information.
 - **Skips non-ICAO addresses entirely.** readsb prefixes an address with `~` when it is not a real ICAO 24-bit address — TIS-B relays and anonymised targets. No airframe exists behind one, so neither lookup is attempted: the call would be a guaranteed miss whose 404 would cache a not-found marker keyed on something that is not an aircraft identifier. These contacts still flow through the pipeline and still display; they simply carry no enrichment. They are also **not** written to the unresolved log — see below.
 - **Run this after your filters.** Running it before means every aircraft in range triggers a lookup every cycle, burning through the rate budget for aircraft you're about to discard anyway.
 - **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `adsbdb` itself. Eight chains naming `adsbdb` share one cache and one rate limiter, which is what makes the rate limit meaningful across an installation rather than per chain.
@@ -198,6 +211,7 @@ Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_descripti
 - `no_callsign` — the aircraft has not transmitted identity, so there was nothing to look up.
 - `unknown_callsign` — adsbdb answered definitively that it holds no route. A real gap in its data, not fixable here.
 - `fetch_failed` — timeout, rate limit or non-404 error. Transient, not a data gap.
+- `suppressed` — the aircraft is flagged LADD, so the route was deliberately not requested. Counted because it is a route that plausibly exists and is being withheld — a real gap in what the wall can show. PIA and `~` addresses get no line at all: they were never candidates for anything.
 
 **Expect `no_callsign` to dominate, and filter it out when reading.** It is routinely two-thirds of the file and it is noise: aircraft transmit position before identity, so each is logged once on arrival and then resolves a cycle or two later. A hex logged as `no_callsign` at 18:04 may well be enriched as `SHT19B` by 18:08. Suppressing it would mean tracking whether a hex later resolved — state and logic in service of tidiness — where filtering on read costs nothing:
 

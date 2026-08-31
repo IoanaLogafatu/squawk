@@ -46,6 +46,16 @@ Skip when:
   meta.icao_hex starts with '~' — readsb's marker for a non-ICAO
   address (TIS-B relay, anonymised target). No airframe exists behind
   one, so both lookups are skipped entirely.
+  airframe.db_flags has PIA set — a Privacy ICAO Address is temporary
+  and identifies no airframe. Both lookups skipped, as for '~'.
+  airframe.db_flags has LADD set — the FAA's Limiting Aircraft Data
+  Displayed programme. The ROUTE lookup only is skipped, and logged as
+  'suppressed'; the airframe lookup still runs, because LADD suppresses
+  flight data rather than the airframe record. Asking a route API about
+  an aircraft whose operator has formally requested suppression is
+  wrong on its own terms, independent of what it costs.
+  Military and interesting flags suppress nothing — they are
+  descriptive, and a military airframe is often in adsbdb.
   The route lookup is additionally skipped when route.callsign is
   UNKNOWN, which is the common case for aircraft that have not yet
   transmitted identity.
@@ -115,6 +125,11 @@ _MEMO_TTL_SECONDS = 60
 _AIRCRAFT = "aircraft"
 _ROUTE    = "route"
 
+# tar1090 dbFlags bits this module acts on. Military (1) and interesting (2)
+# are descriptive rather than privacy flags and suppress nothing.
+_FLAG_PIA  = 4   # Privacy ICAO Address — temporary, identifies nothing
+_FLAG_LADD = 8   # FAA Limiting Aircraft Data Displayed — route withheld by request
+
 _TTLS = {
     _AIRCRAFT: _AIRCRAFT_TTL_SECONDS,
     _ROUTE:    _ROUTE_TTL_SECONDS,
@@ -168,6 +183,19 @@ class AdsbdbEnricher(BaseModule):
             if hex_id.startswith("~"):
                 continue
 
+            # db_flags is None when nothing has told us — a receiver without
+            # --db-file, or an aircraft absent from the CSV. Absence of
+            # information is not information, so None suppresses nothing.
+            flags = a.airframe.db_flags
+            pia   = flags is not None and flags & _FLAG_PIA
+            ladd  = flags is not None and flags & _FLAG_LADD
+
+            # PIA: a Privacy ICAO Address is temporary and identifies no
+            # airframe, so neither lookup can succeed. Treated exactly like a
+            # '~' address, log line included: it was never a candidate.
+            if pia:
+                continue
+
             callsign = (a.route.callsign or "").strip().upper() or None
 
             # Two independent lookups. Either may miss without affecting the
@@ -178,8 +206,15 @@ class AdsbdbEnricher(BaseModule):
             if isinstance(airframe, dict) and not airframe.get("not_found"):
                 merged.update(airframe)
 
+            # LADD suppresses the *route* only, and the asymmetry is the point.
+            # The FAA programme withholds flight data; the airframe record is
+            # not suppressed and is often present. Skipping both lookups would
+            # throw away registration, type and operator that adsbdb would give
+            # for free — and this module has already seen the reverse case,
+            # where a 404 on the airframe still yielded a full route. The two
+            # fail independently and must be skipped independently.
             route: Optional[dict] = None
-            if callsign:
+            if not ladd and callsign:
                 route = self._get(_ROUTE, callsign)
                 if isinstance(route, dict) and not route.get("not_found"):
                     merged.update(route)
@@ -188,7 +223,7 @@ class AdsbdbEnricher(BaseModule):
                 self._apply(a, merged)
 
             if self._log_unresolved and "flightroute" not in merged:
-                self._record_unresolved(a, hex_id, callsign, route)
+                self._record_unresolved(a, hex_id, callsign, route, suppressed=bool(ladd))
 
         return aircraft
 
@@ -376,13 +411,18 @@ class AdsbdbEnricher(BaseModule):
     # -----------------------------------------------------------------
 
     def _record_unresolved(self, aircraft: Aircraft, hex_id: str,
-                           callsign: str | None, route: Optional[dict]) -> None:
+                           callsign: str | None, route: Optional[dict],
+                           suppressed: bool = False) -> None:
         """Append one line per (hex, callsign) whose route adsbdb could not give us.
 
         The reasons have different fixes, so they are distinguished:
         no_callsign      — nothing to look up
         unknown_callsign — adsbdb answered, definitively, that it has no route
         fetch_failed     — timeout, rate limit or non-404 error; transient
+        suppressed       — LADD: a route that plausibly exists, deliberately
+                           withheld. Worth counting, because it is a real gap in
+                           what the wall can show. PIA and '~' addresses get no
+                           line at all — they were never candidates for anything.
         """
         # Checked here, at the point of writing, not inside the memo-guarded
         # lookup — so it holds for the life of the process rather than for one
@@ -396,7 +436,11 @@ class AdsbdbEnricher(BaseModule):
                 return
             self._unresolved_seen.add(seen_key)
 
-        if callsign is None:
+        # 'suppressed' wins over 'no_callsign': we would not have asked either
+        # way, and which flag stopped us is the more useful fact.
+        if suppressed:
+            reason = "suppressed"
+        elif callsign is None:
             reason = "no_callsign"
         elif isinstance(route, dict) and route.get("not_found"):
             reason = "unknown_callsign"

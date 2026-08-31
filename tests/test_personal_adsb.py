@@ -134,6 +134,24 @@ def test_converter_populates_type_code_description_and_category(snap1):
     assert ac.airframe.category         == "A2"
 
 
+def test_converter_populates_db_flags():
+    ac = convert_aircraft({"hex": "abc123", "seen": 1.0, "dbFlags": 8})
+    assert ac.airframe.db_flags == 8
+
+
+def test_converter_db_flags_absent_is_none_not_zero():
+    # Receivers running without --db-file emit no dbFlags at all. That must
+    # stay None: zero would read as "no flags set", i.e. permission to look up.
+    ac = convert_aircraft({"hex": "abc123", "seen": 1.0})
+    assert ac.airframe.db_flags is None
+
+
+def test_converter_db_flags_zero_is_preserved_as_zero():
+    ac = convert_aircraft({"hex": "abc123", "seen": 1.0, "dbFlags": 0})
+    assert ac.airframe.db_flags == 0
+    assert ac.airframe.db_flags is not None
+
+
 def test_converter_leaves_absent_type_fields_as_unknown():
     # A Mode S track carries none of them. Normal, not an error.
     ac = convert_aircraft({"hex": "abc123", "seen": 1.0})

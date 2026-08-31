@@ -40,8 +40,8 @@ import pytest
 
 from modules import clear_module_pool, get_module
 from modules.adsbdb import (
-    AdsbdbEnricher, _AIRCRAFT_TTL_SECONDS, _MEMO_TTL_SECONDS,
-    _RATE_60S, _ROUTE_TTL_SECONDS,
+    AdsbdbEnricher, _AIRCRAFT_TTL_SECONDS, _FLAG_LADD, _FLAG_PIA,
+    _MEMO_TTL_SECONDS, _RATE_60S, _ROUTE_TTL_SECONDS,
 )
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,
@@ -64,13 +64,13 @@ _ROUTE_FRAGMENT    = {"flightroute": _API_INNER["flightroute"]}
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_aircraft(callsign=None, operator=None, hex_id="4D2387") -> Aircraft:
+def _make_aircraft(callsign=None, operator=None, hex_id="4D2387", db_flags=None) -> Aircraft:
     return Aircraft(
         meta      = AircraftMeta(icao_hex=hex_id, ingestor="test", reception_type="mlat"),
         location  = AircraftLocation(),
         direction = AircraftVector(),
         route     = AircraftRoute(callsign=callsign),
-        airframe  = Airframe(operator=operator),
+        airframe  = Airframe(operator=operator, db_flags=db_flags),
         raw       = AircraftRaw(),
     )
 
@@ -932,3 +932,140 @@ def test_non_icao_aircraft_passes_through_unchanged(tmp_path, monkeypatch):
     # The real aircraft alongside it is still enriched.
     assert normal.airframe.registration == "9H-VUZ"
     assert normal.route.origin_iata     == "REU"
+
+
+# ===========================================================================
+# 17. Privacy flags — PIA and LADD suppress different lookups
+# ===========================================================================
+
+_FLAG_MILITARY    = 1
+_FLAG_INTERESTING = 2
+
+
+def _kinds(calls: list[str]) -> set[str]:
+    return {"aircraft" if "/v0/aircraft/" in u else "route" for u in calls}
+
+
+def test_pia_skips_both_lookups(tmp_path, monkeypatch):
+    # A Privacy ICAO Address is temporary and identifies no airframe, so
+    # neither lookup can succeed. Treated exactly like a '~' address.
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+    a = _make_aircraft(callsign="RYR54NN", db_flags=_FLAG_PIA)
+    enricher.process([a])
+
+    assert calls == []
+    assert list(tmp_path.rglob("*.json")) == []
+    assert _unresolved_lines(tmp_path) == []
+    assert a.airframe.registration is None
+
+
+def test_ladd_skips_the_route_but_keeps_the_airframe(tmp_path, monkeypatch):
+    """The asymmetry is the whole point of the change.
+
+    LADD suppresses flight data, not the airframe record. Skipping both would
+    throw away registration, type and operator that adsbdb gives for free.
+    If this ever gets 'simplified' into skipping both calls, this test is what
+    should stop it.
+    """
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+    a = _make_aircraft(callsign="RYR54NN", db_flags=_FLAG_LADD)
+    enricher.process([a])
+
+    assert _kinds(calls) == {"aircraft"}, f"route must not be queried: {calls}"
+
+    # The airframe half still landed.
+    assert a.airframe.registration == "9H-VUZ"
+    assert a.airframe.manufacturer == "Boeing"
+    # The route half did not.
+    assert a.route.origin_iata  is None
+    assert a.route.airline_name is None
+
+
+def test_ladd_writes_one_suppressed_log_line(tmp_path, monkeypatch):
+    # A route that plausibly exists and is deliberately withheld — worth
+    # counting, unlike PIA and '~' which were never candidates.
+    _mock_endpoints(monkeypatch)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+    enricher.process([_make_aircraft(callsign="N12345", db_flags=_FLAG_LADD)])
+
+    lines = _unresolved_lines(tmp_path)
+    assert len(lines) == 1
+    assert lines[0]["reason"]   == "suppressed"
+    assert lines[0]["callsign"] == "N12345"
+
+
+def test_ladd_route_cache_is_never_written(tmp_path, monkeypatch):
+    _mock_endpoints(monkeypatch)
+    AdsbdbEnricher(cache_dir=tmp_path).process([
+        _make_aircraft(callsign="N12345", db_flags=_FLAG_LADD)
+    ])
+    assert not (tmp_path / "route" / "N12345.json").exists()
+    assert (tmp_path / "aircraft" / "4D2387.json").exists()
+
+
+def test_ladd_and_pia_together_means_pia_wins(tmp_path, monkeypatch):
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path, log_unresolved=True)
+    enricher.process([
+        _make_aircraft(callsign="RYR54NN", db_flags=_FLAG_PIA | _FLAG_LADD)
+    ])
+
+    assert calls == []
+    assert _unresolved_lines(tmp_path) == []
+
+
+@pytest.mark.parametrize("flags,label", [
+    (_FLAG_MILITARY,                    "military"),
+    (_FLAG_INTERESTING,                 "interesting"),
+    (_FLAG_MILITARY | _FLAG_INTERESTING, "military+interesting"),
+])
+def test_descriptive_flags_suppress_nothing(tmp_path, monkeypatch, flags, label):
+    # Military and interesting are descriptive, not privacy flags, and a
+    # military aircraft's airframe is often in adsbdb.
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    a = _make_aircraft(callsign="RYR54NN", db_flags=flags)
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert _kinds(calls) == {"aircraft", "route"}, f"{label} must suppress nothing"
+    assert a.route.origin_iata     == "REU"
+    assert a.airframe.registration == "9H-VUZ"
+
+
+def test_db_flags_none_suppresses_nothing(tmp_path, monkeypatch):
+    # Absence of information is not information. A receiver without --db-file
+    # reports no flags at all, and that must not read as "suppress".
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    a = _make_aircraft(callsign="RYR54NN", db_flags=None)
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert _kinds(calls) == {"aircraft", "route"}
+    assert a.route.origin_iata == "REU"
+
+
+def test_db_flags_zero_suppresses_nothing(tmp_path, monkeypatch):
+    # 0 is "no flags set" — a positive statement, and equally permissive.
+    calls: list[str] = []
+    _mock_endpoints(monkeypatch, calls=calls)
+    a = _make_aircraft(callsign="RYR54NN", db_flags=0)
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert _kinds(calls) == {"aircraft", "route"}
+    assert a.route.origin_iata == "REU"
+
+
+def test_flagged_aircraft_pass_through_process_unchanged(tmp_path, monkeypatch):
+    _mock_endpoints(monkeypatch)
+    enricher = AdsbdbEnricher(cache_dir=tmp_path)
+    pia  = _make_aircraft(hex_id="A00001", callsign="N1", db_flags=_FLAG_PIA)
+    ladd = _make_aircraft(hex_id="A00002", callsign="N2", db_flags=_FLAG_LADD)
+    normal = _make_aircraft(callsign="RYR54NN")
+
+    result = enricher.process([pia, ladd, normal])
+    assert result == [pia, ladd, normal]

@@ -122,10 +122,14 @@ def test_type_code_survives_the_full_enrichment_chain(tmp_path):
     assert a.airframe.type_description == "BOEING 737 MAX 8"
     assert a.airframe.category         == "A3"
 
-    # 2. tar1090_db — both fields already set, so it must change nothing.
-    Tar1090DbEnricher(db={"4D2387": ("9H-VUZ", "B38M", "BOEING 737-800 MAX")}).process([a])
+    # 2. tar1090_db — both type fields already set, so it must change nothing,
+    #    but db_flags was absent from the feed so the CSV value lands.
+    Tar1090DbEnricher(
+        db={"4D2387": ("9H-VUZ", "B38M", "BOEING 737-800 MAX", 0)}
+    ).process([a])
     assert a.airframe.type_code        == "B38M"
     assert a.airframe.type_description == "BOEING 737 MAX 8"
+    assert a.airframe.db_flags         == 0
 
     # 3. adsbdb — replaces the description, leaves the designator alone.
     adsbdb_response = {"response": {"aircraft": {

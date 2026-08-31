@@ -123,6 +123,9 @@ def convert_aircraft(
         type_code        = raw.get("t",        UNKNOWN),
         type_description = raw.get("desc",     UNKNOWN),
         category         = raw.get("category", UNKNOWN),
+        # Absent when the receiver runs without --db-file, which is a normal
+        # configuration. Stays None rather than becoming 0.
+        db_flags         = raw.get("dbFlags",  UNKNOWN),
         operator         = UNKNOWN,
     )
 
