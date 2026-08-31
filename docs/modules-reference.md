@@ -22,7 +22,7 @@ For the mechanics of writing a new one, see the **Modules Developer Guide** and 
 | `vertical_rate_filter` | Module — Filter | `[modules.vertical_rate_filter]` | Keeps aircraft climbing, descending, or level |
 | `registration_filter` | Module — Filter | `[modules.registration_filter]` | Keeps only a configured tail-number watchlist |
 | `tar1090_db` | Module — Enrichment | *(none)* | Fills registration/type from the tar1090 CSV |
-| `adsbdb` | Module — Enrichment | *(none)* | Fills manufacturer, owner, and route from adsbdb.com |
+| `adsbdb` | Module — Enrichment | `log_unresolved` | Fills manufacturer, owner, and route from adsbdb.com |
 | `pass_through` | Module — Utility | *(none)* | No-op placeholder chain slot |
 | `console` | Display | `[display.console]` | Prints the nearest aircraft to stdout |
 | `http` | Display | `[display.http]` | Live-updating web page (SSE) |
@@ -165,17 +165,38 @@ As noted in project learnings: this only reliably covers US-registered aircraft.
 
 #### `adsbdb`
 
-Fills `airframe.manufacturer`, `airframe.registration`, `airframe.aircraft_type`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) via a single combined lookup against [adsbdb.com](https://www.adsbdb.com/).
+Fills `airframe.manufacturer`, `airframe.registration`, `airframe.aircraft_type`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) from [adsbdb.com](https://www.adsbdb.com/).
 
-- **Cache-first:** one JSON file per hex under `<data_dir>/modules/adsbdb/`, 1-hour TTL. A cache hit costs zero API calls. 404s are cached as not-found markers so they aren't retried every cycle.
-- **In-memory cache (60 seconds).** Sits in front of the disk cache. When several chains process the same aircraft in the same cycle, one performs the lookup and the rest reuse its result. Failed and rate-limited lookups are cached for the same window so they are not retried by every chain.
+**Two independent lookups**, because the two halves fail independently:
+
+| Endpoint | Fills | Cache | TTL |
+|---|---|---|---|
+| `/v0/aircraft/<HEX>` | airframe | `<data_dir>/modules/adsbdb/aircraft/<HEX>.json` | 7 days |
+| `/v0/callsign/<CALLSIGN>` | route | `<data_dir>/modules/adsbdb/route/<CALLSIGN>.json` | 1 hour |
+
+**An airframe miss no longer suppresses the route.** These were once a single combined call that was accepted only if it contained an `aircraft` key, so a hex adsbdb did not recognise discarded the route along with it — and a community airframe database is most likely to be missing exactly the newest registrations. Whichever half answers is now applied. The TTLs differ for the same reason the lookups do: an airframe's registration and type are immutable for the life of the aircraft, while a callsign's route is a property of today's flight.
+
+- **Cache-first.** A cache hit costs zero API calls. Definitive misses — a 404, or the aircraft endpoint's `"unknown aircraft"` string response — are cached as not-found markers so they aren't retried every cycle. A timeout, a rate-limit skip or a 500 is *never* recorded as a miss; those stay retryable.
+- **In-memory memo (60 seconds).** Sits in front of the disk cache, keyed separately per space. When several chains process the same aircraft in the same cycle, one performs each lookup and the rest reuse its result. Failed and rate-limited lookups are memoised for the same window so they are not retried by every chain.
 - **Rate-limited:** enforces adsbdb's published limits (512 calls/60s, 1024 calls/300s) via an in-memory deque; a call that would exceed either window is skipped for the cycle rather than blocking, leaving the field `UNKNOWN` until the next attempt.
-- **Skips gracefully** when `route.callsign` is `UNKNOWN` — no callsign means no route lookup, though airframe data can still arrive via `tar1090_db`.
+- **Skips the route lookup** when `route.callsign` is `UNKNOWN` — there is nothing to look up. The airframe lookup still runs, and airframe data can also arrive via `tar1090_db`.
 - **Run this after your filters.** Running it before means every aircraft in range triggers a lookup every cycle, burning through the rate budget for aircraft you're about to discard anyway.
 - **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `adsbdb` itself. Eight chains naming `adsbdb` share one cache and one rate limiter, which is what makes the rate limit meaningful across an installation rather than per chain.
 - **Licensing:** route data carries a non-commercial licence (David Taylor / Jim Mason). Runtime fetching is fine; the cache is gitignored and must never be committed to the repo.
 
-No config keys — behaviour (cache dir, rate limits, TTL) is fixed in code, keyed off `squawk.data_dir`.
+| Key | Default | Effect |
+|---|---|---|
+| `log_unresolved` | `false` | Append one JSON line per aircraft whose route adsbdb could not resolve to `<data_dir>/modules/adsbdb/route/unresolved.jsonl` |
+
+`log_unresolved` records what **adsbdb** could not resolve — not what the pipeline as a whole failed to resolve. A later fallback route source may fill some of these in; the distinction matters as soon as a second source exists. Each line carries `at`, `hex`, `callsign`, `registration` and a `reason`, deduplicated on `(hex, callsign)` for the life of the process:
+
+- `no_callsign` — the aircraft has not transmitted identity, so there was nothing to look up.
+- `unknown_callsign` — adsbdb answered definitively that it holds no route. A real gap in its data, not fixable here.
+- `fetch_failed` — timeout, rate limit or non-404 error. Transient, not a data gap.
+
+It is a hand-read diagnostic with no rotation or size bound. If it grows enough to matter, that is itself a finding.
+
+Cache directories, rate limits and TTLs are fixed in code, keyed off `squawk.data_dir`.
 
 ### Utility
 

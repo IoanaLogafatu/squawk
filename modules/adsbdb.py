@@ -24,30 +24,45 @@ Running before filters means every aircraft in range triggers a
 cache/API lookup every cycle, which both wastes calls and risks
 exhausting the adsbdb rate budget.
 
-Endpoint:
-  GET https://api.adsbdb.com/v0/aircraft/<HEX>?callsign=<CALLSIGN>
+Endpoints — two, looked up independently:
 
-  Returns BOTH aircraft and flightroute blocks in one call. Aircraft data
-  for an airframe arrives bundled with each route lookup, so no separate
-  long-term aircraft cache is needed.
+  GET https://api.adsbdb.com/v0/aircraft/<HEX>       → airframe
+  GET https://api.adsbdb.com/v0/callsign/<CALLSIGN>  → today's route
+
+  These are separate lookups because they fail separately. An airframe's
+  registration, type and manufacturer are immutable for the life of the
+  aircraft; a callsign's route is a property of today's flight. Asking
+  for both in one call meant a hex the database did not recognise took
+  the route down with it — and a community airframe database is most
+  likely to be missing exactly the newest registrations. Whichever half
+  answers is applied.
+
+  The aircraft endpoint signals an unknown hex as the *string*
+  "unknown aircraft" under `response` rather than a 404, so a string
+  response is treated as a definitive miss.
 
 Skip when:
-  route.callsign is UNKNOWN — without a callsign we cannot do a route
-  lookup. Airframe data (reg, type) is still populated by tar1090_db for
-  these aircraft; we only lose the registered_owner field, which is
-  usually a private individual for callsign-less aircraft.
+  meta.icao_hex is UNKNOWN — there is nothing to look up.
+  The route lookup is additionally skipped when route.callsign is
+  UNKNOWN, which is the common case for aircraft that have not yet
+  transmitted identity.
 
-Cache (cache-first, then API):
-  data/modules/adsbdb/<CALLSIGN>.json    TTL 1 hour
+Cache (cache-first, then API), under the module directory:
+  aircraft/<HEX>.json       TTL 7 days   — airframe data does not change
+  route/<CALLSIGN>.json     TTL 1 hour   — a route is per-flight
 
-  Stores the full adsbdb response. A cache hit means zero API calls.
-  Stale files trigger a re-fetch; on fetch failure, the stale file is
-  used. 404 responses are cached as not-found markers so we don't retry.
+  A cache hit means zero API calls. Stale files trigger a re-fetch; on
+  fetch failure the stale file is used. Definitive misses (404, or an
+  "unknown" string response) are cached as not-found markers so they are
+  not retried every cycle. A timeout or a 500 is never recorded as a
+  miss — those are transient and must stay retryable.
 
-  In-memory cache (60 seconds), in front of the disk cache. When several
-  chains process the same aircraft in the same cycle, one performs the
-  lookup and the rest reuse its result. Failed and rate-limited lookups
-  are cached for the same window so they are not retried by every chain.
+  In-memory memo (60 seconds), in front of the disk cache, keyed
+  separately per space as ("aircraft", hex) / ("route", callsign). When
+  several chains process the same aircraft in the same cycle, one
+  performs each lookup and the rest reuse its result. Failed and
+  rate-limited lookups are memoised for the same window so they are not
+  retried by every chain.
 
 Rate limits (rolling windows, enforced in-memory):
    512 calls / 60 seconds
@@ -55,6 +70,13 @@ Rate limits (rolling windows, enforced in-memory):
 
   When near either limit the call is skipped this cycle, leaving fields
   as UNKNOWN. Next cycle tries again.
+
+Config keys:
+  log_unresolved (bool, default false) — append one JSON line to
+  route/unresolved.jsonl for each aircraft whose route adsbdb could not
+  resolve. Records what *adsbdb* could not resolve, not what the
+  pipeline as a whole failed to; a later fallback enricher may fill some
+  of these in.
 """
 
 from __future__ import annotations
@@ -74,26 +96,53 @@ from modules import BaseModule, ModuleContext
 from schemas.aircraft import Aircraft
 
 
-_API_BASE          = "https://api.adsbdb.com/v0/aircraft"
-_CACHE_TTL_SECONDS = 3600
-_RATE_60S          = 512
-_RATE_300S         = 1024
-_TIMEOUT_SECONDS   = 5
-_HEADERS           = {"User-Agent": "Squawk/1.1 (+https://github.com/IoanaLogafatu/squawk)"}
+_API_AIRCRAFT = "https://api.adsbdb.com/v0/aircraft"
+_API_CALLSIGN = "https://api.adsbdb.com/v0/callsign"
 
-_MEMO_TTL_SECONDS  = 60
+_AIRCRAFT_TTL_SECONDS = 604800   # 7 days — airframe data does not change
+_ROUTE_TTL_SECONDS    = 3600     # 1 hour — a route is a property of today's flight
+
+_RATE_60S        = 512
+_RATE_300S       = 1024
+_TIMEOUT_SECONDS = 5
+_HEADERS         = {"User-Agent": "Squawk/1.1 (+https://github.com/IoanaLogafatu/squawk)"}
+
+_MEMO_TTL_SECONDS = 60
+
+_AIRCRAFT = "aircraft"
+_ROUTE    = "route"
+
+_TTLS = {
+    _AIRCRAFT: _AIRCRAFT_TTL_SECONDS,
+    _ROUTE:    _ROUTE_TTL_SECONDS,
+}
+
+_UNRESOLVED_LOG = "unresolved.jsonl"
+
+
+def _not_found_marker() -> dict:
+    return {
+        "not_found":  True,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 class AdsbdbEnricher(BaseModule):
 
-    def __init__(self, cache_dir: Path) -> None:
+    def __init__(self, cache_dir: Path, log_unresolved: bool = False) -> None:
         self._cache_dir = cache_dir
+        self._log_unresolved = bool(log_unresolved)
+
         self._call_times: deque[float] = deque()
         self._rate_lock = threading.Lock()
 
-        self._memo: dict[tuple[str, str | None], tuple[float, dict | None]] = {}
-        self._key_locks: dict[tuple[str, str | None], threading.Lock] = {}
+        self._memo: dict[tuple[str, str], tuple[float, dict | None]] = {}
+        self._key_locks: dict[tuple[str, str], threading.Lock] = {}
         self._memo_lock = threading.Lock()
+
+        # (hex, callsign) already written to the unresolved log this process.
+        self._unresolved_seen: set[tuple[str, str | None]] = set()
+        self._unresolved_lock = threading.Lock()
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
         self._sweep()
@@ -102,34 +151,55 @@ class AdsbdbEnricher(BaseModule):
             if not hex_id:
                 continue
             callsign = (a.route.callsign or "").strip().upper() or None
-            data = self._get(hex_id, callsign)
-            if not data or not isinstance(data, dict) or data.get("not_found"):
-                continue
-            self._apply(a, data)
+
+            # Two independent lookups. Either may miss without affecting the
+            # other — that separation is the whole point of this module.
+            merged: dict = {}
+
+            airframe = self._get(_AIRCRAFT, hex_id)
+            if isinstance(airframe, dict) and not airframe.get("not_found"):
+                merged.update(airframe)
+
+            route: Optional[dict] = None
+            if callsign:
+                route = self._get(_ROUTE, callsign)
+                if isinstance(route, dict) and not route.get("not_found"):
+                    merged.update(route)
+
+            if merged:
+                self._apply(a, merged)
+
+            if self._log_unresolved and "flightroute" not in merged:
+                self._record_unresolved(a, hex_id, callsign, route)
+
         return aircraft
 
-    def _get(self, hex_id: str, callsign: str | None) -> Optional[dict]:
-        key = (hex_id, callsign)
+    # -----------------------------------------------------------------
+    # Lookup — memo in front of disk cache in front of API
+    # -----------------------------------------------------------------
+
+    def _get(self, kind: str, key: str) -> Optional[dict]:
+        memo_key = (kind, key)
         now = time.monotonic()
 
         with self._memo_lock:
-            entry = self._memo.get(key)
+            entry = self._memo.get(memo_key)
             if entry is not None and now - entry[0] <= _MEMO_TTL_SECONDS:
                 return entry[1]
-            key_lock = self._key_locks.setdefault(key, threading.Lock())
+            key_lock = self._key_locks.setdefault(memo_key, threading.Lock())
 
         with key_lock:
             # Re-check: another thread may have filled the memo while we waited
             # on the lock, which is the whole point of this method.
             with self._memo_lock:
-                entry = self._memo.get(key)
+                entry = self._memo.get(memo_key)
                 if entry is not None and time.monotonic() - entry[0] <= _MEMO_TTL_SECONDS:
                     return entry[1]
 
-            result = self._get_uncached(hex_id, callsign)
+            result = self._get_uncached(kind, key)
 
             with self._memo_lock:
-                self._memo[key] = (time.monotonic(), result)
+                self._memo[memo_key] = (time.monotonic(), result)
             return result
 
     def _sweep(self) -> None:
@@ -141,111 +211,134 @@ class AdsbdbEnricher(BaseModule):
                 del self._memo[k]
                 self._key_locks.pop(k, None)
 
-    def _get_uncached(self, hex_id: str, callsign: str | None) -> Optional[dict]:
-        cache_path = self._cache_dir / f"{hex_id}.json"
-        legacy_cache_path = (self._cache_dir / f"{callsign}.json") if callsign else None
-
-        active_cache_path = None
-        if cache_path.exists():
-            active_cache_path = cache_path
-        elif legacy_cache_path and legacy_cache_path.exists():
-            active_cache_path = legacy_cache_path
+    def _get_uncached(self, kind: str, key: str) -> Optional[dict]:
+        cache_path = self._cache_dir / kind / f"{key}.json"
+        ttl = _TTLS[kind]
 
         cached_data: Optional[dict] = None
         cache_fresh = False
 
-        if active_cache_path is not None:
+        if cache_path.exists():
             try:
-                cached_data = json.loads(active_cache_path.read_text(encoding="utf-8"))
-                age = time.time() - active_cache_path.stat().st_mtime
-                cache_fresh = age <= _CACHE_TTL_SECONDS
+                cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+                age = time.time() - cache_path.stat().st_mtime
+                cache_fresh = age <= ttl
             except Exception:
                 pass
 
-        if cache_fresh and cached_data is not None and isinstance(cached_data, dict):
-            if cached_data.get("not_found"):
-                return cached_data
-            if callsign and "flightroute" not in cached_data:
-                fetched = self._fetch(hex_id, callsign)
-                if fetched is not None and isinstance(fetched, dict) and "aircraft" in fetched:
-                    self._save_cache(hex_id, callsign, fetched)
-                    return fetched
+        if cache_fresh and isinstance(cached_data, dict):
             return cached_data
 
-        # 1. Try with callsign if available
-        if callsign:
-            fetched = self._fetch(hex_id, callsign)
-            if fetched is not None and isinstance(fetched, dict) and ("aircraft" in fetched or "not_found" in fetched):
-                self._save_cache(hex_id, callsign, fetched)
-                return fetched
-
-        # 2. Fallback or initial fetch with hex only
-        fetched = self._fetch(hex_id, None)
-        if fetched is not None and isinstance(fetched, dict):
-            self._save_cache(hex_id, callsign, fetched)
+        fetched = (self._fetch_aircraft(key) if kind == _AIRCRAFT
+                   else self._fetch_route(key))
+        if isinstance(fetched, dict):
+            self._save_cache(kind, key, fetched)
             return fetched
 
-        if cached_data is not None and isinstance(cached_data, dict):
-            print(f"  adsbdb: fetch failed — using stale cache for {hex_id}")
+        if isinstance(cached_data, dict):
+            print(f"  adsbdb: fetch failed — using stale {kind} cache for {key}")
             return cached_data
 
         return None
 
-    def _save_cache(self, hex_id: str, callsign: str | None, data: dict) -> None:
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-        paths = [self._cache_dir / f"{hex_id}.json"]
-        if callsign:
-            paths.append(self._cache_dir / f"{callsign}.json")
-        for path in paths:
-            tmp = path.with_name(f"{path.name}.{threading.get_ident()}_{time.time_ns()}.tmp")
-            try:
-                tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-                os.replace(tmp, path)
-            except OSError:
-                if tmp.exists():
-                    try:
-                        tmp.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+    def _save_cache(self, kind: str, key: str, data: dict) -> None:
+        directory = self._cache_dir / kind
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{key}.json"
+        tmp = path.with_name(f"{path.name}.{threading.get_ident()}_{time.time_ns()}.tmp")
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            if tmp.exists():
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
+    # -----------------------------------------------------------------
+    # Fetch — one method per endpoint
+    # -----------------------------------------------------------------
 
-    def _fetch(self, hex_id: str, callsign: str | None = None) -> Optional[dict]:
-        url = f"{_API_BASE}/{hex_id}?callsign={callsign}" if callsign else f"{_API_BASE}/{hex_id}"
-        lbl = f"{hex_id}/{callsign}" if callsign else hex_id
+    def _fetch_aircraft(self, hex_id: str) -> Optional[dict]:
+        """Airframe for one hex. Returns {"aircraft": {...}}, a not-found
+        marker, or None when the call failed in a way worth retrying."""
+        status, res = self._request(f"{_API_AIRCRAFT}/{hex_id}", hex_id)
+        if status == "not_found":
+            return _not_found_marker()
+        if status != "ok":
+            return None
+
+        # The unknown-hex case arrives as a 200 whose response is the string
+        # "unknown aircraft", not a 404. Definitive either way.
+        if isinstance(res, str):
+            print(f"  adsbdb: aircraft {hex_id} unknown ({res})")
+            return _not_found_marker()
+        if isinstance(res, dict) and "aircraft" in res:
+            print(f"  adsbdb: 200 aircraft for {hex_id}")
+            return {"aircraft": res["aircraft"]}
+
+        print(f"  adsbdb: 200 aircraft for {hex_id} but unexpected shape: {res}")
+        return None
+
+    def _fetch_route(self, callsign: str) -> Optional[dict]:
+        """Route for one callsign. Returns {"flightroute": {...}}, a not-found
+        marker, or None when the call failed in a way worth retrying."""
+        status, res = self._request(f"{_API_CALLSIGN}/{callsign}", callsign)
+        if status == "not_found":
+            return _not_found_marker()
+        if status != "ok":
+            return None
+
+        if isinstance(res, str):
+            print(f"  adsbdb: callsign {callsign} unknown ({res})")
+            return _not_found_marker()
+        if isinstance(res, dict) and "flightroute" in res:
+            print(f"  adsbdb: 200 route for {callsign}")
+            return {"flightroute": res["flightroute"]}
+
+        print(f"  adsbdb: 200 route for {callsign} but unexpected shape: {res}")
+        return None
+
+    def _request(self, url: str, lbl: str) -> tuple[str, object]:
+        """One HTTP call, reduced to a three-way outcome.
+
+        ("ok", response)  — 200, response envelope unwrapped
+        ("not_found", None) — 404; the only cacheable failure
+        ("fail", None)      — rate limited, transport error, bad JSON, or any
+                              other status. Transient: never cached as a miss.
+        """
         if not self._try_acquire():
             print(f"  adsbdb: rate limit reached — skipping {lbl}")
-            return None
+            return ("fail", None)
+
         try:
             resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT_SECONDS)
         except Exception as exc:
             print(f"  adsbdb: error fetching {lbl}: {exc}")
-            return None
+            return ("fail", None)
 
-        if not resp or not hasattr(resp, "status_code"):
-            return None
+        # Identity check, not truthiness: requests.Response.__bool__ is `self.ok`,
+        # so any 4xx/5xx is falsy. Testing `not resp` here would swallow the 404
+        # before the status check below and never cache a definitive miss.
+        if resp is None or not hasattr(resp, "status_code"):
+            return ("fail", None)
 
         if resp.status_code == 200:
             try:
                 data = resp.json()
             except Exception as exc:
                 print(f"  adsbdb: malformed JSON for {lbl}: {exc}")
-                return None
+                return ("fail", None)
             res = data.get("response", data) if isinstance(data, dict) else data
-            if isinstance(res, dict) and "aircraft" in res:
-                print(f"  adsbdb: 200 for {lbl}")
-                return res
-            print(f"  adsbdb: 200 for {lbl} but response not aircraft dict: {res}")
-            return None
+            return ("ok", res)
 
         if resp.status_code == 404:
             print(f"  adsbdb: 404 for {lbl}")
-            return {
-                "not_found": True,
-                "checked_at": datetime.now(timezone.utc).isoformat(),
-            }
+            return ("not_found", None)
 
         print(f"  adsbdb: unexpected status {resp.status_code} for {lbl}")
-        return None
+        return ("fail", None)
 
     def _try_acquire(self) -> bool:
         """Reserve one API call slot. Returns False if either rate limit is reached."""
@@ -260,7 +353,55 @@ class AdsbdbEnricher(BaseModule):
             self._call_times.append(now)
             return True
 
+    # -----------------------------------------------------------------
+    # Unresolved-route diagnostic log
+    # -----------------------------------------------------------------
+
+    def _record_unresolved(self, aircraft: Aircraft, hex_id: str,
+                           callsign: str | None, route: Optional[dict]) -> None:
+        """Append one line per (hex, callsign) whose route adsbdb could not give us.
+
+        The reasons have different fixes, so they are distinguished:
+        no_callsign      — nothing to look up
+        unknown_callsign — adsbdb answered, definitively, that it has no route
+        fetch_failed     — timeout, rate limit or non-404 error; transient
+        """
+        seen_key = (hex_id, callsign)
+        with self._unresolved_lock:
+            if seen_key in self._unresolved_seen:
+                return
+            self._unresolved_seen.add(seen_key)
+
+        if callsign is None:
+            reason = "no_callsign"
+        elif isinstance(route, dict) and route.get("not_found"):
+            reason = "unknown_callsign"
+        else:
+            reason = "fetch_failed"
+
+        line = json.dumps({
+            "at":           datetime.now(timezone.utc).isoformat(),
+            "hex":          hex_id,
+            "callsign":     callsign,
+            "registration": aircraft.airframe.registration,
+            "reason":       reason,
+        }, ensure_ascii=False)
+
+        directory = self._cache_dir / _ROUTE
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with open(directory / _UNRESOLVED_LOG, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError as exc:
+            print(f"  adsbdb: could not write unresolved log: {exc}")
+
+    # -----------------------------------------------------------------
+    # Apply
+    # -----------------------------------------------------------------
+
     def _apply(self, aircraft: Aircraft, data: dict) -> None:
+        """Apply a merged payload. Either half may be absent — an aircraft with
+        a route but no airframe record is a normal case, not an edge one."""
         aircraft.raw.adsbdb = data
 
         ac = data.get("aircraft") or {}
@@ -296,10 +437,13 @@ class AdsbdbEnricher(BaseModule):
             aircraft.route.destination_country = dest["country_name"]
 
 
-KEYS = {"type"}
+KEYS = {"type", "log_unresolved"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> AdsbdbEnricher:
     cache_dir = ctx.module_dir
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return AdsbdbEnricher(cache_dir=cache_dir)
+    return AdsbdbEnricher(
+        cache_dir      = cache_dir,
+        log_unresolved = bool(cfg.get("log_unresolved", False)),
+    )

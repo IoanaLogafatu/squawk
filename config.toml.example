@@ -163,8 +163,15 @@ unit         = "miles"      # Distance unit: "miles", "km", or "nm" (default "nm
 # Modules referenced above that take no options still need a block —
 # empty is fine; see docs/modules-guide.md.
 [modules.closest_filter]
-[modules.adsbdb]
 [modules.tar1090_db]
+
+[modules.adsbdb]
+# Airframe and route are looked up separately, so an unknown hex no longer
+# costs you the route. Caches live under <data_dir>/modules/adsbdb/ in
+# aircraft/ (7-day TTL) and route/ (1-hour TTL).
+# log_unresolved = false   # Append a JSON line per route adsbdb could not
+                           # resolve to modules/adsbdb/route/unresolved.jsonl.
+                           # Diagnostic only; hand-read, never rotated.
 
 
 # ---------------------------------------------------------------------------
