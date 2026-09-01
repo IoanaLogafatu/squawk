@@ -841,7 +841,7 @@ function setLink(cls, label) {
 const es = new EventSource('/events');
 
 es.onopen = function() {
-  setLink('link-ok', 'LINK OK');
+  setLink('link-ok', 'OK');
 };
 
 es.onerror = function() {
