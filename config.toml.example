@@ -25,10 +25,14 @@ longitude = -1.5721    # decimal degrees, negative = West
 
 [ingestors.concorde]
 enabled = true
+modules = ["altitude_band"]                 # no tar1090_db: concorde fabricates a complete
+                                            # airframe, so a lookup would miss and write nothing.
+                                            # altitude_band is source-independent — a pure function
+                                            # of a field every source provides.
 
 [ingestors.personal_adsb]
 enabled               = false
-modules               = ["tar1090_db"]      # enrichment applied to all aircraft entering storage
+modules               = ["tar1090_db", "altitude_band"]   # enrichment applied to all aircraft entering storage
 receivers             = [
     { name = "receiver-one", url = "http://receiver-one.local/tar1090/data/aircraft.json" },
     { name = "receiver-two", url = "http://receiver-two.local/tar1090/data/aircraft.json" },
@@ -159,6 +163,15 @@ registrations = [
 max_distance = 25           # Maximum ground distance (optional)
 min_distance = 0            # Minimum ground distance (optional)
 unit         = "miles"      # Distance unit: "miles", "km", or "nm" (default "nm")
+
+# Flight-level bands, assigned at ingest. The letters are identity; the
+# FL strings a panel shows are display copy. Changing these edges changes
+# the meaning of every letter across the installation.
+# N edges give N+1 bands lettered from "A": below 10k = A, 10k-20k = B,
+# 20k-30k = C, 30k and above = D. Each edge must be a positive multiple
+# of 100 and strictly ascending; there is no default.
+[modules.altitude_band]
+edges = [10000, 20000, 30000]
 
 # Modules referenced above that take no options still need a block —
 # empty is fine; see docs/modules-guide.md.

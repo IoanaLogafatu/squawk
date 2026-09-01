@@ -71,6 +71,12 @@ class AircraftLocation:
     altitude_feet  — Barometric altitude. Source field alt_baro is polymorphic:
                      integer (feet) in flight, or the string "ground" when the
                      aircraft is on the ground. Stored here as integer; 0 = ground.
+    altitude_band  — Flight-level band letter derived from altitude_feet, assigned
+                     by the altitude_band module at ingest. Bands are lettered from
+                     "A" upward against that installation's configured edges, so
+                     the letter is meaningless without them — change the edges and
+                     every letter changes meaning. Any human-readable form
+                     ("FL200-FL300") is display copy and lives in panel config.
     distance_nm    — Distance from the receiver in nautical miles (readsb r_dst).
     bearing_degrees — Bearing from receiver to aircraft (readsb r_dir), 0–359.
     seen_seconds   — Seconds since any message was received from this aircraft.
@@ -79,6 +85,7 @@ class AircraftLocation:
     latitude:        Optional[float] = UNKNOWN
     longitude:       Optional[float] = UNKNOWN
     altitude_feet:   Optional[int]   = UNKNOWN   # Barometric; 0 = on ground
+    altitude_band:   Optional[str]   = UNKNOWN   # Flight-level band letter, e.g. "C"
     distance_nm:     Optional[float] = UNKNOWN   # Distance from receiver (r_dst)
     bearing_degrees: Optional[float] = UNKNOWN   # Bearing from receiver (r_dir), 0–359
     seen_seconds:    Optional[float] = UNKNOWN   # Seconds since last message
@@ -211,6 +218,9 @@ def aircraft_from_dict(d: dict) -> Aircraft:
             latitude        = loc["latitude"],
             longitude       = loc["longitude"],
             altitude_feet   = loc["altitude_feet"],
+            # .get(): records written before the band existed stay readable and
+            # acquire a letter on the aircraft's next observation.
+            altitude_band   = loc.get("altitude_band"),
             distance_nm     = loc["distance_nm"],
             bearing_degrees = loc["bearing_degrees"],
             seen_seconds    = loc["seen_seconds"],

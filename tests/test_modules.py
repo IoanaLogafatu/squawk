@@ -303,9 +303,14 @@ def test_every_module_accepts_two_argument_signature(tmp_path, monkeypatch):
         observer=ObserverConfig(latitude=53.7778, longitude=-1.5721),
     )
 
+    # Modules whose config has no sensible default get the minimum block that
+    # constructs. altitude_band deliberately has no default edges: an
+    # installation that doesn't say where its bands are doesn't get bands.
+    minimal_cfg = {"altitude_band": {"edges": [10000, 20000, 30000]}}
+
     for info in pkgutil.iter_modules(modules.__path__):
         mod = importlib.import_module(f"modules.{info.name}")
-        instance = mod.get({}, ctx)
+        instance = mod.get(minimal_cfg.get(info.name, {}), ctx)
         assert isinstance(instance, modules.BaseModule), \
             f"modules/{info.name}.py's get() did not return a BaseModule"
 

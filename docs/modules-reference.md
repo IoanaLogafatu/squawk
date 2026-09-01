@@ -22,6 +22,7 @@ For the mechanics of writing a new one, see the **Modules Developer Guide** and 
 | `vertical_rate_filter` | Module — Filter | `[modules.vertical_rate_filter]` | Keeps aircraft climbing, descending, or level |
 | `registration_filter` | Module — Filter | `[modules.registration_filter]` | Keeps only a configured tail-number watchlist |
 | `tar1090_db` | Module — Enrichment | *(none)* | Fills registration/type from the tar1090 CSV |
+| `altitude_band` | Module — Enrichment | `[modules.altitude_band]` | Tags each aircraft with a flight-level band letter |
 | `adsbdb` | Module — Enrichment | `log_unresolved` | Fills manufacturer, owner, and route from adsbdb.com |
 | `pass_through` | Module — Utility | *(none)* | No-op placeholder chain slot |
 | `console` | Display | `[display.console]` | Prints the nearest aircraft to stdout |
@@ -61,7 +62,10 @@ A synthetic fixture — no hardware required. Simulates registration `G-BOAC` fl
 ```toml
 [ingestors.concorde]
 enabled = true
+modules = ["altitude_band"]
 ```
+
+`tar1090_db` is deliberately absent here: Concorde fabricates a complete airframe (`G-BOAC`, operator, type code, type description, category), so a database lookup would miss and write nothing. `altitude_band` is source-independent — a pure function of a field every source provides — so no ingestor legitimately opts out of it.
 
 ---
 
@@ -168,6 +172,30 @@ The SQLite index records a schema version in `PRAGMA user_version` (currently **
 - **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `tar1090_db` itself. Every chain naming the same block shares one SQLite handle rather than each opening its own.
 
 As noted in project learnings: this only reliably covers US-registered aircraft. European commercial traffic needs the `adsbdb` → callsign-prefix → OpenFlights fallback chain to fill the same fields.
+
+#### `altitude_band`
+
+Fills `location.altitude_band` with a flight-level band letter derived from `location.altitude_feet`. Runs **at ingest**, so every `data/tracked_aircraft/*.json` carries a band letter and downstream filters and selectors can group by band without each one carrying its own altitude thresholds.
+
+```toml
+[modules.altitude_band]
+edges = [10000, 20000, 30000]
+```
+
+Bands are lettered from `A` upward and assignment is half-open upward — an altitude sitting exactly on an edge belongs to the band above it. N edges give N+1 bands:
+
+| Band | Condition | Reads as |
+|---|---|---|
+| A | `alt < 10000` | below FL100 |
+| B | `10000 <= alt < 20000` | FL100–FL200 |
+| C | `20000 <= alt < 30000` | FL200–FL300 |
+| D | `alt >= 30000` | above FL300 |
+
+- **The letters are identity; the FL strings are display copy.** "FL200–FL300" belongs in panel config, not in the schema and not in this module. **Changing `edges` changes the meaning of every letter across the installation** — stored records, panel titles and any chain that selects on a letter all shift together.
+- **`edges` is required — there is no default.** An installation that doesn't say where its bands are doesn't get bands. Validated at construction, so a bad list fails at startup: a non-empty, strictly ascending list of positive multiples of 100 (so no derived label can come out as FL125.5), at most 25 edges so the letters stay single characters.
+- **Reads `location.altitude_feet` and nothing else.** That field is already normalised barometric altitude with `"ground"` mapped to `0`, which is what a flight level is measured against — so there is no conversion here and no `alt_geom` fallback: a band derived from geometric altitude would not be a flight level. An aircraft with an `UNKNOWN` altitude keeps an `UNKNOWN` band rather than being forced into `A`.
+- **Source-independent, so every ingestor lists it** — unlike `tar1090_db`, which fills gaps a particular source leaves. Ordering within an ingestor's `modules` list does not matter; this depends only on what the converter already set.
+- **Derived state in storage.** The letter is recomputed from `altitude_feet` on every ingest cycle and written beside it, so it cannot go stale relative to the altitude it came from.
 
 #### `adsbdb`
 
