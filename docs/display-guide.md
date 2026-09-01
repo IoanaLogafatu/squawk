@@ -73,12 +73,15 @@ class HttpDisplay(BaseModule):
         panel_cfg       = (cfg.get("panels", {}) or {}).get(self.chain_name, {})
         self.panel_title = str(panel_cfg.get("title", self.chain_name.replace("_", " ").title()))
         self.slot        = int(panel_cfg.get("slot", 0))
+        self.layout      = str(panel_cfg.get("layout", "card"))
+        self.bands       = [str(b) for b in (panel_cfg.get("bands") or [])]
         self._state = SharedState()
         server      = ThreadingHTTPServer(("", port), make_handler(self._state))
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        self._state.update(self.chain_name, self.panel_title, self.slot, aircraft)
+        self._state.update(self.chain_name, self.panel_title, self.slot, aircraft,
+                           layout=self.layout, bands=self.bands)
         return aircraft
 ```
 
@@ -111,6 +114,65 @@ The dashboard is a fixed 4×2 grid, matching the physical wall it is built for. 
 All eight slots always render. Slot 4 is top-right whether or not slots 1–3 are occupied, so a chain that dies leaves a gap where it was instead of shuffling the survivors into new positions — on a wall, positional memory is worth more than a tidy layout. A slot with no chain assigned shows its number and `UNASSIGNED`; that is a normal state, not an error. It is distinct from `NO TARGET`, which means a chain is running and currently sees nothing.
 
 `slot` is **required**, and must be an integer from 1 to 8 that no other chain claims — a wrong or absent position is a visible defect on the wall, so the loader rejects it at startup. `title` is optional and falls back to a title-cased chain name (`low_level` → `Low Level`). The panel block itself is required too: a chain with `display = "http"` and no matching `[display.http.panels.<chain>]` block fails at startup rather than falling back silently, so a renamed chain can't orphan its panel unnoticed. A block still carrying the old `order` key is rejected with a message pointing at `slot`.
+
+#### Panel layouts
+
+A panel block's optional `layout` key selects which renderer draws it. It defaults to `"card"`, the single-aircraft view described above, so **every existing panel block keeps working untouched**.
+
+```toml
+[display.http.panels.panel_one]
+title  = "Overhead"
+slot   = 1
+layout = "list"
+bands  = ["D", "C", "B", "A"]
+```
+
+`layout = "list"` renders one fixed row per entry in `bands`, top to bottom exactly as written, and pairs with the `band_closest` selector upstream:
+
+```toml
+[processors.panel_one]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["band_closest", "adsbdb"]
+display               = "http"
+```
+
+Each row is four lines and nothing else:
+
+```
+FL320 Air France
+F-GUOB Boeing 777-200
+CDG Paris, France
+→ORD Chicago, USA
+```
+
+| Line | Content |
+|---|---|
+| 1 | Flight level, airline (`route.airline_name`) |
+| 2 | Ident, manufacturer + type |
+| 3 | Origin IATA, municipality, country |
+| 4 | `→` destination IATA, municipality, country |
+
+The leading `→` on line 4 marks the destination without a label and left-aligns the two airport codes into a column the eye reads down; it sits hard against the left edge. Still deliberately absent: no callsign as a field of its own, no climb/descend arrow, no distance, no row heading. The space that buys goes into font size — this is read from across a room, and a field earns its place only against legibility.
+
+The ident is the payload's existing `ident` key: registration → callsign → ICAO hex. Registration is a database lookup while the callsign is broadcast, so they fail independently — a PIA or `~` address has both lookups skipped by design yet still transmits a callsign, and on an aircraft's first cycles `adsbdb` has not run. Hex is a genuine last resort.
+
+- **Rows are placed by band letter, not by list position.** `band_closest` returns between zero and N aircraft and gives no indication of which bands are missing, so the renderer matches each aircraft's `location.altitude_band` to a configured letter. An aircraft whose band no row claims is not rendered.
+- **An empty band still occupies its row**, carrying no text. The rows hold their positions and the wall does not re-read itself each cycle. There are no headings to fall back on — which is also why `bands` takes no labels: **each row shows the aircraft's own flight level rather than a configured band caption**, so a row can never claim an altitude its occupant does not have.
+- **The flight level is `FL` + hundreds of feet, zero-padded to three digits** — `29000` → `FL290`, `2000` → `FL020`. Applied at every altitude, including below the transition altitude where it is not strictly what a flight level means: fixed-width labels keep the rows aligned, and this is a wall display, not an ATC position.
+- **The city, not the airport's full name.** Lines 3 and 4 use `route.origin_municipality` / `route.destination_municipality`, filled by `adsbdb` alongside the airport name. For CDG the name is *Charles de Gaulle International Airport* where the municipality is *Paris*, and an audience that wanted line 3 at all wants the city. The full name stays in `origin_name` / `destination_name` for anything else that wants it. A compound municipality — adsbdb occasionally answers `Cincinnati / Covington` — is split on the slash and the first city kept: one city read across a room beats two thirds of two.
+- **Two country names are shortened** — `United Kingdom` → `UK`, `United States` (and `United States of America`) → `USA`. An explicit two-entry map, not a general abbreviation scheme.
+- **The manufacturer is normalised to its brand name first.** adsbdb returns the registered legal entity — `Boeing Company`, `Airbus Sas`, `Atr - Gie Avions De Transport Regional` — which is both wrong to read and long enough to truncate the variant code that is the interesting part of the line. An explicit map, seeded from what is actually in the aircraft cache and matched case-insensitively, turns those into `Boeing`, `Airbus` and `ATR`; anything unmapped passes through untouched. It is a map rather than a rule that strips trailing corporate words, which would mangle any manufacturer whose brand legitimately contains one. This is a display transform: `airframe.manufacturer` keeps whatever the source gave it.
+
+  The order matters. Normalising **before** the rule below means its prefix check compares `Boeing` against `BOEING 737-800` and strips correctly; normalising after would leave it comparing `Boeing Company`, missing, and concatenating instead.
+- **Manufacturer and type are then joined without saying "Boeing" twice.** The two sources differ: `tar1090_db` writes `BOEING 737-800` with the manufacturer baked in and in caps, `adsbdb` overwrites with `737NG 8AS/W` and carries `manufacturer` separately, so prefixing blindly gives `Boeing BOEING 737-800`. In order: no description → the manufacturer alone; no manufacturer → the description unchanged; a description that starts with the manufacturer (compared case-insensitively) has that prefix replaced with the manufacturer's own casing, `BOEING 737-800` + `Boeing` → `Boeing 737-800`; otherwise the two are concatenated, `Boeing` + `737MAX 8 200` → `Boeing 737MAX 8 200`.
+
+  The description-only case is the normal state for an aircraft's first cycle or two — `tar1090_db` answers before `adsbdb` does — so a row reading in capitals is expected, not a defect. **Known limitation:** where the two sources spell the manufacturer differently, `De Havilland Canada` against `DEHAVILLAND DHC-8`, the prefix match misses and the name doubles. Rare, and visible on the wall when it happens.
+- **Every line collapses in place, and the row keeps its height** (`grid-auto-rows: 1fr`). No airline leaves line 1 as the flight level alone; no manufacturer or type leaves line 2 as the ident alone. **A missing route is words, not punctuation:** line 3 reads `Origin unknown` and line 4 `→Destination unknown`, and both lines are always drawn. A half-known route renders the resolved side normally and gives the other its unknown text; an airport with no municipality reads `CDG France`, and with no country either, `CDG` alone.
+
+`layout` and `bands` are validated at startup: `layout` must be `"card"` or `"list"`, `"list"` requires a non-empty `bands`, `bands` with any other layout is an error naming both keys, and each entry must be a single letter `A`–`Z`, unique within the panel — two rows claiming `C` is the same class of mistake as two panels claiming a slot.
+
+The letters are **not** checked against `[modules.altitude_band].edges`. The loader can see both, but checking would couple display config to module config. A `bands` entry of `F` in a four-band installation renders a permanently empty row — visible on the wall, and self-diagnosing.
 
 Notable details:
 

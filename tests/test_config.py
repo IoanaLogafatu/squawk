@@ -426,6 +426,94 @@ order = 1
     assert "slot" in message
 
 
+def _list_panel(tmp_path, panel_body: str):
+    return _write(tmp_path, f"""
+[processors.panel_one]
+enabled = true
+modules = []
+display = "http"
+
+[display.http]
+port = 7700
+
+[display.http.panels.panel_one]
+slot = 1
+{panel_body}
+""")
+
+
+def test_http_panel_list_layout_with_bands_accepted(tmp_path):
+    cfg_file = _list_panel(tmp_path, 'layout = "list"\nbands  = ["D", "C", "B", "A"]')
+    loaded = load_config(cfg_file)
+    panel = loaded.display["http"]["panels"]["panel_one"]
+    assert panel["layout"] == "list"
+    assert panel["bands"] == ["D", "C", "B", "A"]
+
+
+def test_http_panel_list_layout_without_bands_rejected(tmp_path):
+    cfg_file = _list_panel(tmp_path, 'layout = "list"')
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "panel_one" in message
+    assert "bands" in message
+
+
+def test_http_panel_list_layout_with_empty_bands_rejected(tmp_path):
+    cfg_file = _list_panel(tmp_path, 'layout = "list"\nbands  = []')
+    with pytest.raises(ConfigError, match="bands"):
+        load_config(cfg_file)
+
+
+def test_http_panel_bands_without_list_layout_rejected_naming_both_keys(tmp_path):
+    cfg_file = _list_panel(tmp_path, 'layout = "card"\nbands  = ["D", "C"]')
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "bands" in message
+    assert "layout" in message
+
+
+def test_http_panel_bands_with_default_layout_rejected(tmp_path):
+    # No 'layout' key at all is the card default, so this is the same mistake.
+    cfg_file = _list_panel(tmp_path, 'bands = ["D", "C"]')
+    with pytest.raises(ConfigError, match="bands"):
+        load_config(cfg_file)
+
+
+def test_http_panel_duplicate_band_rejected(tmp_path):
+    cfg_file = _list_panel(tmp_path, 'layout = "list"\nbands  = ["D", "C", "C", "A"]')
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "panel_one" in message
+    assert "'C'" in message
+
+
+@pytest.mark.parametrize("bad_band", ['"AB"', '"1"', '"c"', '""', "3"])
+def test_http_panel_invalid_band_entry_rejected(tmp_path, bad_band):
+    cfg_file = _list_panel(tmp_path, f'layout = "list"\nbands  = ["D", {bad_band}]')
+    with pytest.raises(ConfigError, match="A to Z"):
+        load_config(cfg_file)
+
+
+def test_http_panel_unknown_layout_rejected_listing_valid_values(tmp_path):
+    cfg_file = _list_panel(tmp_path, 'layout = "grid"')
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "grid" in message
+    assert "card" in message
+    assert "list" in message
+
+
+def test_http_panel_without_layout_or_bands_still_validates(tmp_path):
+    # Every existing panel block keeps working untouched.
+    cfg_file = _list_panel(tmp_path, 'title = "Plain"')
+    loaded = load_config(cfg_file)
+    assert "layout" not in loaded.display["http"]["panels"]["panel_one"]
+
+
 def test_http_eight_chains_in_eight_slots_accepted(tmp_path):
     body = ""
     for i in range(1, 9):

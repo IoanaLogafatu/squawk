@@ -17,6 +17,7 @@ For the mechanics of writing a new one, see the **Modules Developer Guide** and 
 | `personal_adsb` | Ingestor | `[ingestors.personal_adsb]` | Polls your own receiver(s), merges by recency |
 | `concorde` | Ingestor | `[ingestors.concorde]` | Synthetic test aircraft, no hardware needed |
 | `closest_filter` | Module — Filter | `[modules.closest_filter]` | Reduces to the single nearest aircraft |
+| `band_closest` | Module — Selector | `[modules.band_closest]` | Nearest aircraft in each altitude band, highest band first |
 | `altitude_filter` | Module — Filter | `[modules.altitude_filter]` | Keeps aircraft within an altitude band |
 | `ground_distance_filter` | Module — Filter | `[modules.ground_distance_filter]` | Keeps aircraft within a ground distance range (miles, km, nm) |
 | `vertical_rate_filter` | Module — Filter | `[modules.vertical_rate_filter]` | Keeps aircraft climbing, descending, or level |
@@ -90,6 +91,32 @@ Filters reduce or reorder the list. Output length is always ≤ input length.
 Reduces the list to the single aircraft nearest the receiver (`location.distance_nm`, ascending). Aircraft with no known distance are excluded as candidates rather than crashing the comparison. Returns `[]` if nothing qualifies.
 
 No configuration options.
+
+#### `band_closest`
+
+Reduces the list to the nearest aircraft in each altitude band — one per band, ordered highest band to lowest (`D, C, B, A`), so a panel reads sky to ground.
+
+```toml
+[modules.band_closest]
+```
+
+A **selector rather than a filter**: it groups and picks rather than applying a threshold. It holds no altitude logic and no thresholds of its own — it groups on the letter in `location.altitude_band` and nothing else.
+
+- **Depends on the `altitude_band` enricher running at ingest.** Without it every aircraft has an `UNKNOWN` band and this module returns nothing. It cannot compute the band itself: the edges are installation config, and duplicating them here is exactly the split-brain the band letter exists to prevent.
+- **Candidacy is the same rule `closest_filter` uses, plus the band.** An aircraft with `UNKNOWN` `distance_nm` cannot win a "nearest" comparison and is excluded; so is one with `UNKNOWN` `altitude_band`. A band holding only such aircraft yields nothing for that band.
+- **An empty band produces no entry** — no placeholder, no gap. The result is between zero and one entry per band, so **consumers must read `location.altitude_band` on each returned aircraft rather than infer the band from list position.** With nothing in C, the second entry is B, not a hole.
+- **Ties on `distance_nm` return exactly one aircraft.** Which one is unspecified; the count is not.
+- **Run it before `adsbdb`**, the same "filter before enrich" rule that module documents. It cuts the list to at most one aircraft per band, so the enricher performs a handful of route lookups per cycle instead of one per aircraft in range — roughly four lookups rather than roughly forty-five.
+
+```toml
+[processors.panel_one]
+enabled               = true
+poll_interval_seconds = 5
+modules               = ["band_closest", "adsbdb"]
+display               = "http"
+```
+
+No configuration options, but the `[modules.band_closest]` block must still exist — an empty one is fine, and config loading fails at startup without it.
 
 #### `altitude_filter`
 
@@ -200,6 +227,8 @@ Bands are lettered from `A` upward and assignment is half-open upward — an alt
 #### `adsbdb`
 
 Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_description`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) from [adsbdb.com](https://www.adsbdb.com/).
+
+The route block carries both the airport's full name and the city it serves — `route.origin_name` / `route.origin_municipality`, and the same pair for the destination. They are separate fields because they answer different questions: CDG's name is *Charles de Gaulle International Airport* where its municipality is *Paris*, and a display generally wants the city. Both come from the same API response, so a route cached before the municipality was mapped fills it in on its next read without a cache flush.
 
 **Two independent lookups**, because the two halves fail independently:
 

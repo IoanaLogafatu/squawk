@@ -55,28 +55,14 @@ backend = "disk_drive"
 
 # --- Row 1: Altitude Bands ---
 
-[processors.low_level]
+# One chain covers every band: band_closest picks the nearest aircraft in each,
+# and the panel's `list` layout places them by band letter. It runs before
+# adsbdb deliberately — at most one lookup per band per cycle instead of one
+# per aircraft in range.
+[processors.panel_one]
 enabled               = true
 poll_interval_seconds = 5
-modules               = ["low_altitude", "closest_filter", "adsbdb"]
-display               = "http"
-
-[processors.mid_level]
-enabled               = true
-poll_interval_seconds = 5
-modules               = ["mid_altitude", "closest_filter", "adsbdb"]
-display               = "http"
-
-[processors.upper_level]
-enabled               = true
-poll_interval_seconds = 5
-modules               = ["upper_altitude", "closest_filter", "adsbdb"]
-display               = "http"
-
-[processors.high_cruise]
-enabled               = true
-poll_interval_seconds = 5
-modules               = ["high_altitude", "closest_filter", "adsbdb"]
+modules               = ["band_closest", "adsbdb"]
 display               = "http"
 
 # --- Row 2: Special Targets ---
@@ -119,24 +105,6 @@ display               = "pushover"
 # Modules
 # ---------------------------------------------------------------------------
 
-[modules.low_altitude]
-type  = "altitude_filter"
-below = 5000
-
-[modules.mid_altitude]
-type  = "altitude_filter"
-above = 5000
-below = 15000
-
-[modules.upper_altitude]
-type  = "altitude_filter"
-above = 15000
-below = 25000
-
-[modules.high_altitude]
-type  = "altitude_filter"
-above = 25000
-
 [modules.near_distance]
 type         = "ground_distance_filter"
 max_distance = 10
@@ -176,6 +144,7 @@ edges = [10000, 20000, 30000]
 # Modules referenced above that take no options still need a block —
 # empty is fine; see docs/modules-guide.md.
 [modules.closest_filter]
+[modules.band_closest]
 [modules.tar1090_db]
 
 [modules.adsbdb]
@@ -211,21 +180,18 @@ port = 7700                              # HTTP port for the web display
 #     5  6  7  8
 #
 # `title` is optional and falls back to a title-cased chain name.
-[display.http.panels.low_level]
-title = "Approach & Low (< 5k ft)"
-slot  = 1
-
-[display.http.panels.mid_level]
-title = "Mid Level (5k–15k ft)"
-slot  = 2
-
-[display.http.panels.upper_level]
-title = "Upper Level (15k–25k ft)"
-slot  = 3
-
-[display.http.panels.high_cruise]
-title = "High Cruise (> 25k ft)"
-slot  = 4
+# `layout` defaults to "card", the single-aircraft view every other panel here
+# uses. "list" renders one row per letter in `bands`, top to bottom as written,
+# and needs the altitude_band enricher on the ingestors. Rows are placed by each
+# aircraft's own band letter: a band with nothing in it is a row of empty space,
+# not a missing row. The letters are not checked against
+# [modules.altitude_band].edges — a band no aircraft can reach is a permanently
+# empty row, which is visible on the wall and says so itself.
+[display.http.panels.panel_one]
+title  = "Overhead"
+slot   = 1
+layout = "list"
+bands  = ["D", "C", "B", "A"]
 
 [display.http.panels.closest_overhead]
 title = "Nearby (< 10 nm)"

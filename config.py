@@ -219,6 +219,59 @@ def _check_display_blocks(
             )
 
 
+PANEL_LAYOUTS = ("card", "list")
+
+
+def _check_panel_layout(name: str, panel: dict, errors: list[str]) -> None:
+    """Validate one panel's layout/bands pair.
+
+    Deliberately does NOT check the band letters against
+    [modules.altitude_band].edges. The loader can see both, but checking would
+    couple display config to module config. A 'bands' entry of "F" in a
+    four-band installation renders a permanently empty row — visible on the
+    wall, and self-diagnosing.
+    """
+    layout = panel.get("layout", "card")
+    if layout not in PANEL_LAYOUTS:
+        errors.append(
+            f"[display.http.panels.{name}] has layout = {layout!r} — must be "
+            f"{' or '.join(repr(v) for v in PANEL_LAYOUTS)}."
+        )
+        return
+
+    bands = panel.get("bands")
+
+    if layout != "list":
+        if bands is not None:
+            errors.append(
+                f"[display.http.panels.{name}] has a 'bands' key but layout = {layout!r} — "
+                "'bands' only applies to layout = \"list\"."
+            )
+        return
+
+    if not isinstance(bands, list) or not bands:
+        errors.append(
+            f"[display.http.panels.{name}] has layout = \"list\" but no 'bands' — set an "
+            "ordered, non-empty list of band letters, e.g. bands = [\"D\", \"C\", \"B\", \"A\"]."
+        )
+        return
+
+    seen: set[str] = set()
+    for band in bands:
+        if not isinstance(band, str) or len(band) != 1 or not ("A" <= band <= "Z"):
+            errors.append(
+                f"[display.http.panels.{name}] has bands entry {band!r} — each entry must "
+                "be a single band letter from A to Z."
+            )
+            continue
+        if band in seen:
+            errors.append(
+                f"[display.http.panels.{name}] lists band {band!r} twice — each row needs "
+                "a band of its own, the same way each panel needs a slot of its own."
+            )
+        seen.add(band)
+
+
 def _check_http_panels(
     processors: dict[str, ProcessorConfig],
     display:    dict,
@@ -256,6 +309,8 @@ def _check_http_panels(
                 "'slot'. Panels no longer sort; each one names a fixed position "
                 "in the 4x2 wall (1-4 across the top, 5-8 across the bottom)."
             )
+
+        _check_panel_layout(name, panel, errors)
 
         if "slot" not in panel:
             errors.append(

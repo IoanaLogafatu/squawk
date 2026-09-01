@@ -58,17 +58,28 @@ def _make_aircraft(
     distance_nm=None,
     bearing_degrees=None,
     altitude_feet=None,
+    altitude_band=None,
     vertical_rate_fpm=None,
+    manufacturer=None,
+    origin_municipality=None,
+    destination_municipality=None,
+    origin_country=None,
+    destination_country=None,
 ) -> Aircraft:
     return Aircraft(
         meta      = AircraftMeta(icao_hex=hex_id, ingestor="test", reception_type="adsb_icao"),
-        location  = AircraftLocation(distance_nm=distance_nm, bearing_degrees=bearing_degrees, altitude_feet=altitude_feet),
+        location  = AircraftLocation(distance_nm=distance_nm, bearing_degrees=bearing_degrees,
+                                     altitude_feet=altitude_feet, altitude_band=altitude_band),
         direction = AircraftVector(vertical_rate_fpm=vertical_rate_fpm),
         route     = AircraftRoute(callsign=callsign, airline_name=airline_name,
-                                  origin_iata=origin_iata, destination_iata=destination_iata),
+                                  origin_iata=origin_iata, destination_iata=destination_iata,
+                                  origin_municipality=origin_municipality,
+                                  destination_municipality=destination_municipality,
+                                  origin_country=origin_country,
+                                  destination_country=destination_country),
         airframe  = Airframe(registration=registration, type_code=type_code,
                              type_description=type_description, category=category,
-                             operator=operator),
+                             operator=operator, manufacturer=manufacturer),
         raw       = AircraftRaw(),
     )
 
@@ -486,6 +497,220 @@ def test_render_route_destination_only():
 def test_render_route_neither_is_null():
     d = render_aircraft_dict(_make_aircraft())
     assert d["route"] is None
+
+
+# ===========================================================================
+# 4b. List layout — band letters in the payload, layout/bands on the panel
+# ===========================================================================
+
+def test_render_carries_altitude_band():
+    d = render_aircraft_dict(_make_aircraft(altitude_feet=29000, altitude_band="C"))
+    assert d["altitude_band"] == "C"
+
+
+def test_render_altitude_band_unknown_passes_through_as_null():
+    # No placeholder: the client decides what an unbanded aircraft means.
+    d = render_aircraft_dict(_make_aircraft(altitude_feet=29000))
+    assert d["altitude_band"] is None
+
+
+def test_list_panel_payload_carries_layout_and_bands():
+    port = _free_port()
+    panels = {"panel_one": {"title": "Overhead", "slot": 1,
+                            "layout": "list", "bands": ["D", "C", "B", "A"]}}
+    display = HttpDisplay({"port": port, "chain_name": "panel_one", "panels": panels})
+    display.process([])
+
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/api/status")
+    panel = json.loads(body)["panels"]["panel_one"]
+    assert panel["layout"] == "list"
+    assert panel["bands"] == ["D", "C", "B", "A"]
+
+
+def test_card_panel_payload_is_unchanged():
+    # Regression guard on the default path: a panel block written before the
+    # list layout existed keeps rendering as a card.
+    port = _free_port()
+    panels = {"legacy": {"title": "Legacy", "slot": 2}}
+    display = HttpDisplay({"port": port, "chain_name": "legacy", "panels": panels})
+    display.process([_make_aircraft(registration="G-CARD")])
+
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/api/status")
+    panel = json.loads(body)["panels"]["legacy"]
+    assert panel["layout"] == "card"
+    assert panel["bands"] == []
+    assert panel["aircraft"][0]["ident"] == "G-CARD"
+    assert panel["aircraft"][0]["distance"] == "—"
+    assert panel["aircraft"][0]["vrate"]    == "—"
+
+
+def test_list_panel_entries_carry_their_band_letters():
+    # Bands D and B occupied, C and A empty. The payload says which is which;
+    # position in the list says nothing, which is why the letter is carried.
+    port = _free_port()
+    panels = {"banded": {"title": "Banded", "slot": 1,
+                         "layout": "list", "bands": ["D", "C", "B", "A"]}}
+    display = HttpDisplay({"port": port, "chain_name": "banded", "panels": panels})
+    display.process([
+        _make_aircraft(hex_id="AAAA01", registration="REG-D", altitude_feet=35000, altitude_band="D"),
+        _make_aircraft(hex_id="AAAA02", registration="REG-B", altitude_feet=12000, altitude_band="B"),
+    ])
+
+    time.sleep(0.05)
+    _, body = _get(f"http://localhost:{port}/api/status")
+    panel = json.loads(body)["panels"]["banded"]
+    assert panel["count"] == 2
+    assert [(a["ident"], a["altitude_band"]) for a in panel["aircraft"]] == [
+        ("REG-D", "D"), ("REG-B", "B"),
+    ]
+
+
+# ===========================================================================
+# 4c. Four-line row — municipality, country abbreviation, manufacturer rule
+# ===========================================================================
+
+def test_render_carries_municipalities():
+    d = render_aircraft_dict(_make_aircraft(
+        origin_iata="CDG", origin_municipality="Paris",
+        destination_iata="ORD", destination_municipality="Chicago",
+    ))
+    assert d["origin_municipality"]      == "Paris"
+    assert d["destination_municipality"] == "Chicago"
+
+
+def test_render_municipality_absent_is_null():
+    # No placeholder in the payload; the row decides what to draw.
+    d = render_aircraft_dict(_make_aircraft(origin_iata="CDG"))
+    assert d["origin_municipality"]      is None
+    assert d["destination_municipality"] is None
+
+
+@pytest.mark.parametrize("full, short", [
+    ("United Kingdom",           "UK"),
+    ("United States",            "USA"),
+    ("United States of America", "USA"),
+])
+def test_render_shortens_long_country_names(full, short):
+    d = render_aircraft_dict(_make_aircraft(origin_country=full, destination_country=full))
+    assert d["origin_country"]      == short
+    assert d["destination_country"] == short
+
+
+def test_render_leaves_other_countries_alone():
+    # Two entries, not a general abbreviation scheme.
+    d = render_aircraft_dict(_make_aircraft(origin_country="France",
+                                            destination_country="Netherlands"))
+    assert d["origin_country"]      == "France"
+    assert d["destination_country"] == "Netherlands"
+
+
+def test_type_label_replaces_a_repeated_manufacturer_prefix():
+    # tar1090_db writes the manufacturer into the description in caps.
+    # Prefixing blindly would read "Boeing BOEING 737-800".
+    d = render_aircraft_dict(_make_aircraft(manufacturer="Boeing",
+                                            type_description="BOEING 737-800"))
+    assert d["type_label"] == "Boeing 737-800"
+
+
+def test_type_label_concatenates_when_the_description_omits_the_manufacturer():
+    # adsbdb's descriptions carry no manufacturer.
+    d = render_aircraft_dict(_make_aircraft(manufacturer="Boeing",
+                                            type_description="737MAX 8 200"))
+    assert d["type_label"] == "Boeing 737MAX 8 200"
+
+
+def test_type_label_manufacturer_alone_when_type_is_unknown():
+    d = render_aircraft_dict(_make_aircraft(manufacturer="Boeing"))
+    assert d["type_label"] == "Boeing"
+
+
+def test_type_label_description_unchanged_when_manufacturer_is_unknown():
+    # The normal state for an aircraft's first cycles: tar1090_db has answered
+    # and adsbdb has not, so the row reads in capitals until it does.
+    d = render_aircraft_dict(_make_aircraft(type_description="BOEING 737-800"))
+    assert d["type_label"] == "BOEING 737-800"
+
+
+def test_type_label_is_null_when_both_are_unknown():
+    assert render_aircraft_dict(_make_aircraft())["type_label"] is None
+
+
+def test_type_label_doubles_a_differently_spelled_manufacturer():
+    # Known limitation, asserted so it is a decision rather than a surprise:
+    # the prefix match is literal, so two spellings of the same manufacturer
+    # produce both. Rare, and visible on the wall when it happens.
+    d = render_aircraft_dict(_make_aircraft(manufacturer="De Havilland Canada",
+                                            type_description="DEHAVILLAND DHC-8"))
+    assert d["type_label"] == "De Havilland Canada DEHAVILLAND DHC-8"
+
+
+# ===========================================================================
+# 4d. Manufacturer normalisation and compound municipalities
+# ===========================================================================
+
+@pytest.mark.parametrize("legal, brand", [
+    ("Boeing Company",                         "Boeing"),
+    ("Airbus Sas",                             "Airbus"),
+    ("Airbus Industrie",                       "Airbus"),
+    ("Atr - Gie Avions De Transport Regional", "ATR"),
+    ("Avions de Transport Regional",           "ATR"),
+])
+def test_manufacturer_normalised_to_its_brand(legal, brand):
+    # adsbdb returns the registered legal entity; the wall wants the brand.
+    d = render_aircraft_dict(_make_aircraft(manufacturer=legal))
+    assert d["manufacturer"] == brand
+    assert d["type_label"]   == brand
+
+
+def test_manufacturer_match_is_case_insensitive():
+    d = render_aircraft_dict(_make_aircraft(manufacturer="BOEING COMPANY"))
+    assert d["manufacturer"] == "Boeing"
+
+
+def test_unmapped_manufacturer_passes_through_unchanged():
+    # An explicit map, not a suffix-stripping scheme — a brand that legitimately
+    # ends in a corporate word keeps it.
+    d = render_aircraft_dict(_make_aircraft(manufacturer="Gulfstream Aerospace"))
+    assert d["manufacturer"] == "Gulfstream Aerospace"
+
+
+def test_manufacturer_none_passes_through():
+    assert render_aircraft_dict(_make_aircraft())["manufacturer"] is None
+
+
+def test_manufacturer_is_normalised_before_the_type_label_rule():
+    # The ordering guard. Normalising after the rule would leave it comparing
+    # "Boeing Company" against "BOEING 737-800", missing the prefix, and
+    # concatenating instead of stripping.
+    d = render_aircraft_dict(_make_aircraft(manufacturer="Boeing Company",
+                                            type_description="BOEING 737-800"))
+    assert d["type_label"] == "Boeing 737-800"
+
+
+def test_normalised_manufacturer_still_concatenates_a_bare_type():
+    d = render_aircraft_dict(_make_aircraft(manufacturer="Airbus Sas",
+                                            type_description="A321-251NX"))
+    assert d["type_label"] == "Airbus A321-251NX"
+
+
+def test_compound_municipality_keeps_the_first_city():
+    d = render_aircraft_dict(_make_aircraft(
+        origin_municipality="Cincinnati / Covington",
+        destination_municipality="Dallas-Fort Worth / Irving",
+    ))
+    assert d["origin_municipality"]      == "Cincinnati"
+    assert d["destination_municipality"] == "Dallas-Fort Worth"
+
+
+def test_municipality_without_a_slash_is_unchanged():
+    d = render_aircraft_dict(_make_aircraft(
+        origin_municipality="Rio de Janeiro",
+        destination_municipality="Arnavutköy, Istanbul",
+    ))
+    assert d["origin_municipality"]      == "Rio de Janeiro"
+    assert d["destination_municipality"] == "Arnavutköy, Istanbul"
 
 
 # ===========================================================================

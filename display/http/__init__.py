@@ -9,13 +9,21 @@ Configured via [display.http] in config.toml:
     port = 7700
 
     [display.http.panels.<chain_name>]
-    title = "..."
-    slot  = 1
+    title  = "..."
+    slot   = 1
+    layout = "list"              # "card" (default) or "list"
+    bands  = ["D", "C", "B", "A"]
 
 Each chain is matched to a panel block by chain name. `slot` is a fixed
 position in the 4x2 wall (1-4 across the top row, 5-8 across the bottom);
 the config loader requires it and rejects duplicates. `title` is optional
 and falls back to a title-cased chain name.
+
+`layout` selects the panel's renderer and defaults to "card", the
+single-aircraft view every existing panel uses. "list" renders one row per
+band letter in `bands`, top to bottom as written, and requires the
+altitude_band enricher upstream — rows are placed by each aircraft's own
+location.altitude_band, never by its position in the list.
 """
 
 from __future__ import annotations
@@ -42,6 +50,10 @@ class HttpDisplay(BaseModule):
         panel_cfg = panels.get(self.chain_name, {})
         self.panel_title = str(panel_cfg.get("title", self.chain_name.replace("_", " ").title()))
         self.slot = int(panel_cfg.get("slot", 0))
+        # Validated by the config loader; defaulted here so a panel block that
+        # predates the list layout keeps rendering as a card.
+        self.layout = str(panel_cfg.get("layout", "card"))
+        self.bands = [str(b) for b in (panel_cfg.get("bands") or [])]
 
         with _SERVER_LOCK:
             if port not in _SERVERS:
@@ -58,7 +70,8 @@ class HttpDisplay(BaseModule):
         self._state = state
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
-        self._state.update(self.chain_name, self.panel_title, self.slot, aircraft)
+        self._state.update(self.chain_name, self.panel_title, self.slot, aircraft,
+                           layout=self.layout, bands=self.bands)
         return aircraft
 
 

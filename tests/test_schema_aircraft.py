@@ -96,8 +96,10 @@ def test_aircraft_from_dict_round_trips_new_fields():
         route     = AircraftRoute(
             callsign            = "RYR54NN",
             origin_name         = "Reus Airport",
+            origin_municipality = "Reus",
             origin_country      = "Spain",
             destination_name    = "Leeds Bradford Airport",
+            destination_municipality = "Leeds",
             destination_country = "United Kingdom",
             airline_name        = "Ryanair",
             airline_country     = "Ireland",
@@ -118,6 +120,8 @@ def test_aircraft_from_dict_round_trips_new_fields():
     r = aircraft_from_dict(d)
 
     assert r.route.origin_name         == "Reus Airport"
+    assert r.route.origin_municipality == "Reus"
+    assert r.route.destination_municipality == "Leeds"
     assert r.route.origin_country      == "Spain"
     assert r.route.destination_name    == "Leeds Bradford Airport"
     assert r.route.destination_country == "United Kingdom"
@@ -148,6 +152,8 @@ def test_aircraft_from_dict_backward_compat_old_snapshot():
     assert a.airframe.category         is None
     assert a.airframe.db_flags         is None
     assert a.route.origin_name         is None
+    assert a.route.origin_municipality is None
+    assert a.route.destination_municipality is None
     assert a.route.origin_country      is None
     assert a.route.destination_name    is None
     assert a.route.destination_country is None

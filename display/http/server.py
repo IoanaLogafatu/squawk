@@ -33,11 +33,93 @@ def _cardinal(bearing: Optional[float]) -> Optional[str]:
     return _CARDINAL_16[int((bearing + 11.25) / 22.5) % 16]
 
 
+# Explicit, and deliberately not a general abbreviation scheme: these are the
+# two country names long enough to push a wall row past its width. adsbdb
+# returns "United States" in practice; the longer spelling is accepted too
+# because other sources use it.
+_COUNTRY_SHORT = {
+    "united kingdom":            "UK",
+    "uk":                        "UK",
+    "united states":             "USA",
+    "united states of america":  "USA",
+    "usa":                       "USA",
+}
+
+
+def _short_country(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return name
+    return _COUNTRY_SHORT.get(name.lower(), name)
+
+
+# adsbdb returns the registered legal entity, not the brand a viewer reads:
+# "Boeing Company", "Airbus Sas". Concatenated onto a type it is both wrong to
+# read and long enough to truncate the variant code, which is the interesting
+# part of the line.
+#
+# Explicit, seeded from what is actually in the aircraft cache — not a rule that
+# strips trailing corporate words, which would mangle any manufacturer whose
+# brand legitimately contains one. Unmapped values pass through untouched.
+_MANUFACTURER_SHORT = {
+    "boeing company":                          "Boeing",
+    "airbus sas":                              "Airbus",
+    "airbus industrie":                        "Airbus",
+    "atr - gie avions de transport regional":  "ATR",
+    "avions de transport regional":            "ATR",
+}
+
+
+def _short_manufacturer(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return name
+    return _MANUFACTURER_SHORT.get(name.lower(), name)
+
+
+def _first_municipality(name: Optional[str]) -> Optional[str]:
+    """The first city of a compound municipality.
+
+    adsbdb occasionally answers "Cincinnati / Covington", which truncates on the
+    wall. One city is worth more there than two thirds of two.
+    """
+    if not name:
+        return name
+    return name.split("/")[0].strip() or name
+
+
+def _type_label(manufacturer: Optional[str], description: Optional[str]) -> Optional[str]:
+    """Manufacturer and type as one string, without saying "Boeing" twice.
+
+    The two sources spell the type differently: tar1090_db writes
+    "BOEING 737-800" with the manufacturer baked in and in caps, while adsbdb
+    overwrites with "737NG 8AS/W" and carries the manufacturer separately.
+    Prefixing blindly gives "Boeing BOEING 737-800".
+
+    The prefix case is the one that matters; the rest are its edges. Where the
+    two sources spell the manufacturer differently — "De Havilland Canada"
+    against "DEHAVILLAND DHC-8" — the prefix match misses and the name doubles.
+    Rare, and visible on the wall when it happens.
+    """
+    if not description:
+        return manufacturer or None
+    if not manufacturer:
+        return description
+    if description.lower().startswith(manufacturer.lower()):
+        # Same manufacturer, the source's own casing: "BOEING 737-800" reads
+        # as "Boeing 737-800".
+        return manufacturer + description[len(manufacturer):]
+    return f"{manufacturer} {description}"
+
+
 # ---------------------------------------------------------------------------
 # Data renderers
 # ---------------------------------------------------------------------------
 
 def render_aircraft_dict(a: Aircraft) -> dict:
+    # Normalised before _type_label, not after: the four-branch rule's prefix
+    # check compares "Boeing" against "BOEING 737-800" and strips it. Comparing
+    # "Boeing Company" would miss and fall through to concatenation.
+    manufacturer = _short_manufacturer(a.airframe.manufacturer)
+
     vr    = a.direction.vertical_rate_fpm or 0
     vrate = "↑" if vr > 200 else "↓" if vr < -200 else "—"
 
@@ -69,12 +151,8 @@ def render_aircraft_dict(a: Aircraft) -> dict:
     else:
         route = None
 
-    orig_country = a.route.origin_country
-    dest_country = a.route.destination_country
-    if orig_country and orig_country.lower() in ("united kingdom", "uk"):
-        orig_country = "UK"
-    if dest_country and dest_country.lower() in ("united kingdom", "uk"):
-        dest_country = "UK"
+    orig_country = _short_country(a.route.origin_country)
+    dest_country = _short_country(a.route.destination_country)
 
     return {
         "ident":               a.airframe.registration or a.route.callsign or a.meta.icao_hex,
@@ -83,19 +161,28 @@ def render_aircraft_dict(a: Aircraft) -> dict:
         "icao_hex":            a.meta.icao_hex,
         "type_code":           a.airframe.type_code,
         "type_description":    a.airframe.type_description,
+        # Manufacturer and type as one string, for layouts that show both.
+        "type_label":          _type_label(manufacturer, a.airframe.type_description),
         "category":            a.airframe.category,
-        "manufacturer":        a.airframe.manufacturer or None,
+        "manufacturer":        manufacturer or None,
         "airline":             a.route.airline_name or None,
         "route":               route,
         "origin_iata":         origin,
+        # The city, not the airport's full name: for CDG the name is "Charles
+        # de Gaulle International Airport" where the municipality is "Paris".
+        "origin_municipality": _first_municipality(a.route.origin_municipality),
         "origin_country":      orig_country,
         "destination_iata":    dest,
+        "destination_municipality": _first_municipality(a.route.destination_municipality),
         "destination_country": dest_country,
         "operator":            a.airframe.operator or None,
         "distance":            distance,
         "distance_nm":         dist,
         "altitude":            altitude,
         "altitude_feet":       alt,
+        # Assigned at ingest by the altitude_band module. The list layout
+        # places each aircraft by this letter rather than by list position.
+        "altitude_band":       a.location.altitude_band,
         "vrate":               vrate,
         "speed_knots":         round(a.direction.ground_speed_knots) if a.direction.ground_speed_knots else None,
         "timestamp":           datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
@@ -114,12 +201,16 @@ class SharedState:
         self._panels: dict[str, dict] = {}
 
     def update(self, chain_name: str, panel_title: str, slot: int,
-               aircraft: list[Aircraft]) -> None:
+               aircraft: list[Aircraft], layout: str = "card",
+               bands: Optional[list[str]] = None) -> None:
         with self._lock:
             self._panels[chain_name] = {
                 "chain_name":    chain_name,
                 "title":         panel_title,
                 "slot":          slot,
+                "layout":        layout,
+                # Ordered top to bottom as written; empty for the card layout.
+                "bands":         list(bands or []),
                 "aircraft":      [render_aircraft_dict(a) for a in aircraft],
                 "count":         len(aircraft),
                 "updated_epoch": time.time(),
@@ -611,6 +702,81 @@ _PAGE = """\
     align-items: center;
     gap: 0.6vw;
   }
+
+  /* List layout — one row per configured band, top to bottom as written.
+     Equal-height rows so an empty band still holds its position and the
+     wall does not re-read itself each cycle. */
+  .band-list {
+    flex: 1;
+    display: grid;
+    grid-auto-rows: 1fr;
+    gap: 0.5vw;
+    min-height: 0;
+  }
+
+  .band-row {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.15vw;
+    padding: 0.3vw 0.7vw;
+    border-left: 3px solid rgba(56, 189, 248, 0.35);
+    background: rgba(255, 255, 255, 0.035);
+    border-radius: 0 clamp(4px, 0.5vw, 8px) clamp(4px, 0.5vw, 8px) 0;
+    overflow: hidden;
+  }
+
+  /* No aircraft in this band. Occupies its height, says nothing — there are
+     no headings to fall back on. */
+  .band-row.band-empty {
+    background: transparent;
+    border-left-color: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Four lines per row. Dropping the callsign, distance and vertical-rate
+     arrow buys this size — the panel is read from across a room. Every line
+     clips rather than wraps: a wrapped line would steal the next one's space. */
+  .band-line-primary,
+  .band-line-secondary,
+  .band-line-place {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.15;
+  }
+
+  .band-line-primary {
+    font-size: clamp(1.05rem, 1.7vw, 2.5rem);
+    font-weight: 800;
+  }
+
+  .band-line-secondary {
+    font-size: clamp(0.9rem, 1.35vw, 2rem);
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+
+  .band-line-place {
+    font-size: clamp(0.85rem, 1.25vw, 1.85rem);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .band-fl,
+  .band-ident,
+  .band-iata {
+    font-family: ui-monospace, "Cascadia Code", monospace;
+  }
+
+  .band-fl      { color: var(--accent-amber); }
+  .band-airline { color: var(--accent-cyan); font-weight: 900; }
+  .band-type    { color: #ffffff; }
+  .band-ident   { color: var(--text-primary); }
+  .band-iata    { color: #ffffff; font-weight: 800; }
+  /* Hard against the left edge: it marks the destination without a label and
+     keeps the two airport codes in a column the eye reads down. */
+  .band-arrow   { color: var(--accent-amber); }
+  .band-unknown { color: var(--text-dim); font-style: italic; }
 </style>
 </head>
 <body>
@@ -786,6 +952,85 @@ function renderCard(panel) {
   `;
 }
 
+// Flight level from feet: fixed-width, three digits, at every altitude —
+// including below the transition altitude, where it is not strictly what a
+// flight level means. Four rows that line up beat notational purity on a wall.
+function flightLevel(feet) {
+  if (feet === null || feet === undefined || isNaN(feet)) return '';
+  return 'FL' + String(Math.max(0, Math.round(feet / 100))).padStart(3, '0');
+}
+
+// One end of the route: code, city, country. The city is preferred over the
+// airport's own name — CDG is "Charles de Gaulle International Airport", and
+// the row wants "Paris". An unresolved side says so in words: "???" reads as
+// broken rather than unknown once the route is split across two lines.
+function renderBandPlace(iata, municipality, country, unknownText, arrow) {
+  const lead = arrow ? '<span class="band-arrow">→</span>' : '';
+  if (!iata) {
+    return `<div class="band-line-place">${lead}<span class="band-unknown">${unknownText}</span></div>`;
+  }
+  const tail = [municipality, country].filter(Boolean).map(esc).join(', ');
+  return `
+    <div class="band-line-place">${lead}<span class="band-iata">${esc(iata)}</span>${tail ? ' ' + tail : ''}</div>
+  `;
+}
+
+// One band's row: four lines, each collapsing in place around what is missing.
+// The row keeps its height either way — that is grid-auto-rows: 1fr's job, and
+// both route lines are always drawn.
+function renderBandRow(a) {
+  if (!a) return '<div class="band-row band-empty"></div>';
+
+  const primary = [];
+  const fl = flightLevel(a.altitude_feet);
+  if (fl) primary.push(`<span class="band-fl">${esc(fl)}</span>`);
+  if (a.airline) primary.push(`<span class="band-airline">${esc(a.airline)}</span>`);
+
+  // `ident` is already registration → callsign → hex: the registration is a
+  // database lookup, the callsign is broadcast, and they fail independently.
+  const secondary = [`<span class="band-ident">${esc(a.ident)}</span>`];
+  if (a.type_label) secondary.push(`<span class="band-type">${esc(a.type_label)}</span>`);
+
+  return `
+    <div class="band-row">
+      <div class="band-line-primary">${primary.join(' ')}</div>
+      <div class="band-line-secondary">${secondary.join(' ')}</div>
+      ${renderBandPlace(a.origin_iata, a.origin_municipality, a.origin_country, 'Origin unknown', false)}
+      ${renderBandPlace(a.destination_iata, a.destination_municipality, a.destination_country, 'Destination unknown', true)}
+    </div>
+  `;
+}
+
+function renderListCard(panel) {
+  const title = esc(panel.title || panel.chain_name || 'TRAFFIC');
+  const list = panel.aircraft || [];
+  const bands = panel.bands || [];
+
+  const secs = ageSeconds(panel);
+  const stale = secs !== null && secs > STALE_AFTER_SECONDS;
+  const cardClass = stale ? 'panel-card stale' : 'panel-card';
+
+  // Rows are placed by band letter, never by list position: band_closest
+  // returns between zero and N aircraft and says nothing about which bands
+  // are missing. An aircraft in a band no row claims is not rendered.
+  const rows = bands.map(function(letter) {
+    const match = list.find(function(a) { return a.altitude_band === letter; });
+    return renderBandRow(match);
+  }).join('');
+
+  return `
+    <div class="${cardClass}">
+      <div class="panel-header">
+        <span class="panel-badge">${title}</span>
+        <span class="panel-header-right">
+          <span class="panel-age">${esc(ageText(secs))}</span>
+        </span>
+      </div>
+      <div class="band-list">${rows}</div>
+    </div>
+  `;
+}
+
 let lastState = null;
 
 function renderPanels(state) {
@@ -802,7 +1047,12 @@ function renderPanels(state) {
   // shuffling the seven survivors into new positions.
   let html = '';
   for (let slot = 1; slot <= SLOTS; slot++) {
-    html += bySlot[slot] ? renderCard(bySlot[slot]) : renderEmptySlot(slot);
+    const panel = bySlot[slot];
+    if (!panel) {
+      html += renderEmptySlot(slot);
+    } else {
+      html += panel.layout === 'list' ? renderListCard(panel) : renderCard(panel);
+    }
   }
   dashboard.innerHTML = html;
 }

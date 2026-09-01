@@ -33,6 +33,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -265,6 +266,38 @@ def test_cache_miss_fetch_writes_caches_and_populates_fields(tmp_path, monkeypat
 
     # raw.adsbdb holds the merged dict, so a consumer sees both halves.
     assert a.raw.adsbdb == _API_INNER
+
+
+def test_apply_populates_municipalities(tmp_path, monkeypatch):
+    # The cached route files already hold "municipality" — the field was in the
+    # API response all along, simply not mapped — so existing caches fill this
+    # in on their next read without a flush.
+    _mock_endpoints(monkeypatch)
+    a = _make_aircraft(callsign="RYR54NN")
+    AdsbdbEnricher(cache_dir=tmp_path).process([a])
+
+    assert a.route.origin_municipality      == "Reus"
+    assert a.route.destination_municipality == "Leeds"
+    # The airport's full name is kept, not repurposed.
+    assert a.route.origin_name              == "Reus Airport"
+    assert a.route.destination_name         == "Leeds Bradford Airport"
+
+
+def test_enriched_municipalities_survive_storage(tmp_path, monkeypatch):
+    from storage.disk_drive import DiskDriveStorage
+
+    _mock_endpoints(monkeypatch)
+    a = _make_aircraft(callsign="RYR54NN")
+    a.meta.observed_at = datetime.now(timezone.utc)
+    a.location.seen_seconds = 0.0
+    AdsbdbEnricher(cache_dir=tmp_path / "cache").process([a])
+
+    backend = DiskDriveStorage(tmp_path / "store")
+    backend.save_aircraft_array([a])
+    restored = backend.retrieve_aircraft_objects()[0]
+
+    assert restored.route.origin_municipality      == "Reus"
+    assert restored.route.destination_municipality == "Leeds"
 
 
 def test_cache_files_hold_only_their_own_half(tmp_path, monkeypatch):

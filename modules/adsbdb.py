@@ -499,12 +499,16 @@ class AdsbdbEnricher(BaseModule):
             aircraft.route.origin_iata = origin["iata_code"]
         if aircraft.route.origin_name is None and origin.get("name"):
             aircraft.route.origin_name = origin["name"]
+        if aircraft.route.origin_municipality is None and origin.get("municipality"):
+            aircraft.route.origin_municipality = origin["municipality"]
         if aircraft.route.origin_country is None and origin.get("country_name"):
             aircraft.route.origin_country = origin["country_name"]
         if aircraft.route.destination_iata is None and dest.get("iata_code"):
             aircraft.route.destination_iata = dest["iata_code"]
         if aircraft.route.destination_name is None and dest.get("name"):
             aircraft.route.destination_name = dest["name"]
+        if aircraft.route.destination_municipality is None and dest.get("municipality"):
+            aircraft.route.destination_municipality = dest["municipality"]
         if aircraft.route.destination_country is None and dest.get("country_name"):
             aircraft.route.destination_country = dest["country_name"]
 

@@ -108,6 +108,11 @@ class AircraftRoute:
     squawk_code    — 4-digit octal code assigned by ATC per airspace entry.
     callsign       — ICAO flight number / radio callsign.
     origin/dest    — Not in ADS-B — enrichment modules only.
+    *_municipality — The city an airport serves, kept separate from *_name:
+                     adsbdb gives both, and for CDG the name is "Charles de
+                     Gaulle International Airport" where the municipality is
+                     "Paris". A display generally wants the city; the full
+                     airport name is legitimate data in its own right.
     flight_number  — Not in ADS-B — enrichment modules only.
     """
 
@@ -115,9 +120,11 @@ class AircraftRoute:
     squawk_code:         Optional[str] = UNKNOWN   # 4-digit octal transponder code
     origin_iata:         Optional[str] = UNKNOWN   # Departure airport, e.g. "LHR"
     origin_name:         Optional[str] = UNKNOWN   # e.g. "Reus Airport"
+    origin_municipality: Optional[str] = UNKNOWN   # City served, e.g. "Reus"
     origin_country:      Optional[str] = UNKNOWN   # e.g. "Spain"
     destination_iata:    Optional[str] = UNKNOWN   # Arrival airport, e.g. "JFK"
     destination_name:    Optional[str] = UNKNOWN   # e.g. "Leeds Bradford Airport"
+    destination_municipality: Optional[str] = UNKNOWN   # City served, e.g. "Leeds"
     destination_country: Optional[str] = UNKNOWN   # e.g. "United Kingdom"
     flight_number:       Optional[str] = UNKNOWN   # Commercial flight number, e.g. "BA117"
     airline_name:        Optional[str] = UNKNOWN   # e.g. "Ryanair"
@@ -235,9 +242,11 @@ def aircraft_from_dict(d: dict) -> Aircraft:
             squawk_code         = rt["squawk_code"],
             origin_iata         = rt["origin_iata"],
             origin_name         = rt.get("origin_name"),
+            origin_municipality = rt.get("origin_municipality"),
             origin_country      = rt.get("origin_country"),
             destination_iata    = rt["destination_iata"],
             destination_name    = rt.get("destination_name"),
+            destination_municipality = rt.get("destination_municipality"),
             destination_country = rt.get("destination_country"),
             flight_number       = rt["flight_number"],
             airline_name        = rt.get("airline_name"),
