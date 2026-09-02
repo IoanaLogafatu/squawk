@@ -513,7 +513,7 @@ class AdsbdbEnricher(BaseModule):
             aircraft.route.destination_country = dest["country_name"]
 
 
-KEYS = {"type", "log_unresolved"}
+KEYS = {"log_unresolved"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> AdsbdbEnricher:

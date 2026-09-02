@@ -111,7 +111,7 @@ class GroundDistanceFilter(BaseModule):
         return filtered
 
 
-KEYS = {"type", "max_distance", "min_distance", "unit", "observer_lat", "observer_lon"}
+KEYS = {"max_distance", "min_distance", "unit", "observer_lat", "observer_lon"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> GroundDistanceFilter:

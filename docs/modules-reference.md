@@ -193,9 +193,9 @@ The CSV's type-code and description columns are carried through as two separate 
 The SQLite index records a schema version in `PRAGMA user_version` (currently **3**). An index built by an older Squawk has a different column count and is rebuilt from the CSV rather than read, so no manual cleanup is needed after an upgrade — and the rebuild fires on a version mismatch alone, without waiting for the CSV to change.
 
 - **Configured on the ingestor, not in a processor chain.** Listed under `modules = [...]` on `[ingestors.personal_adsb]`, so enrichment runs once per aircraft on ingest rather than once per chain per cycle. The enriched values are written into storage, so `data/tracked_aircraft/*.json` files carry registration and aircraft type on disk.
-- Downloads `aircraft.csv.gz` automatically on first run and refreshes it every 30 days.
+- Downloads `aircraft.csv.gz` automatically on first run. The CSV's age is then re-checked continuously — once an hour, not only at startup — and redownloaded once it passes `refresh_days`, so a long-running process (weeks or months without a restart) still picks up updates without needing one.
 - Cached at `<data_dir>/modules/tar1090_db/aircraft.csv`.
-- No config keys of its own.
+- `refresh_days` (optional, default `30`) — max age of the cached CSV before it's redownloaded. Unlike `altitude_band`'s `edges`, there's a sane default and nothing safety-critical rides on it, so the key can be omitted entirely.
 - **One instance per `[modules.<name>]` block** — the module factory pools instances by name and config, not `tar1090_db` itself. Every chain naming the same block shares one SQLite handle rather than each opening its own.
 
 As noted in project learnings: this only reliably covers US-registered aircraft. European commercial traffic needs the `adsbdb` → callsign-prefix → OpenFlights fallback chain to fill the same fields.

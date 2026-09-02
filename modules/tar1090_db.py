@@ -24,6 +24,10 @@ The CSV is downloaded automatically from the tar1090-db GitHub release if it
 is missing or older than 30 days, then cached at:
     <data_dir>/modules/tar1090_db/aircraft.csv
 
+Staleness is re-checked hourly from process(), not just once at construction,
+so a long-lived instance still redownloads on schedule instead of only ever
+checking on the day the process happened to start.
+
 The SQLite index is rebuilt when the CSV is newer than it, or when its
 _SCHEMA_VERSION does not match — an index built by an older Squawk has a
 different column count and must be discarded rather than read.
@@ -45,6 +49,13 @@ from schemas.aircraft import Aircraft
 
 _CSV_URL      = "https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz"
 _REFRESH_DAYS = 30
+
+# How often process() re-checks the CSV's age. Not the poll interval: at a
+# 5-second poll, checking every cycle would run ~17,000 times a day to answer
+# a question that changes once a month. An hour keeps the 30-day threshold
+# effectively exact while cutting the check rate by roughly 700x, and still
+# picks up a pending refresh within the hour of a receiver coming back online.
+_CHECK_INTERVAL_SECONDS = 3600
 
 # Bump when the aircraft table's shape changes. Stored in the database's
 # PRAGMA user_version; a mismatch forces a rebuild. Version 1 was the
@@ -70,13 +81,45 @@ class SQLiteTarDb:
         return self._local.cursor.fetchone()
 
 
+def _validate_refresh_days(value: object) -> int:
+    """Return `value` as a positive int, or `_REFRESH_DAYS` if unset.
+
+    Unlike altitude_band's `edges`, there's a sane default and nothing
+    safety-critical rides on it, so a missing key is not an error — only a
+    present-but-nonsensical one is.
+    """
+    if value is None:
+        return _REFRESH_DAYS
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"tar1090_db: 'refresh_days' must be an integer, got {value!r}")
+    if value <= 0:
+        raise ValueError(f"tar1090_db: 'refresh_days' must be positive, got {value!r}")
+    return value
+
+
 class Tar1090DbEnricher(BaseModule):
 
-    def __init__(self, db: dict[str, tuple[str | None, str | None, str | None, int | None]] | SQLiteTarDb | None = None) -> None:
+    def __init__(
+        self,
+        db: dict[str, tuple[str | None, str | None, str | None, int | None]] | SQLiteTarDb | None = None,
+        csv_path: Path | None = None,
+        db_path: Path | None = None,
+        refresh_days: int = _REFRESH_DAYS,
+    ) -> None:
         # icao_hex (uppercase) → (registration, type_code, description, db_flags)
         self._db = db
+        self._csv_path = csv_path
+        self._db_path = db_path
+        self._refresh_days = refresh_days
+        # 0.0 forces _maybe_refresh() to run on the first process() call — a
+        # freshly constructed instance has never actually checked the CSV's age.
+        self._last_check = 0.0
 
     def process(self, aircraft: list[Aircraft]) -> list[Aircraft]:
+        now = time.time()
+        if now - self._last_check >= _CHECK_INTERVAL_SECONDS:
+            self._maybe_refresh()
+            self._last_check = now
         if not self._db:
             return aircraft
         for a in aircraft:
@@ -98,6 +141,51 @@ class Tar1090DbEnricher(BaseModule):
             if a.airframe.db_flags is None and db_flags is not None:
                 a.airframe.db_flags = db_flags
         return aircraft
+
+    def _maybe_refresh(self) -> None:
+        """Download the CSV if it's older than `refresh_days` and rebuild the
+        SQLite index if the CSV or the schema version has moved past it.
+
+        A no-op for enrichers built directly around an in-memory dict (tests,
+        and the CSV-missing fallback in get()) — there's no file to refresh.
+
+        get_module() pools one instance per (name, cfg) block (see
+        modules/__init__.py), so however many chains reference this block,
+        only one process() call stream ever reaches this method — no risk of
+        two chains racing to redownload or rebuild the same files.
+        """
+        if self._csv_path is None or self._db_path is None:
+            return
+        csv_path, db_path = self._csv_path, self._db_path
+
+        if _needs_refresh(csv_path, self._refresh_days):
+            try:
+                _download(csv_path)
+            except Exception as exc:
+                if not csv_path.exists():
+                    print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
+                    return
+
+        if not csv_path.exists():
+            return
+
+        stale_csv    = not db_path.exists() or db_path.stat().st_mtime < csv_path.stat().st_mtime
+        stale_schema = db_path.exists() and _db_schema_version(db_path) != _SCHEMA_VERSION
+        if stale_csv or stale_schema:
+            if stale_schema and not stale_csv:
+                print(f"  tar1090_db: index schema is out of date — rebuilding {db_path.name} …")
+            else:
+                print(f"  tar1090_db: building SQLite index {db_path.name} …")
+            _build_sqlite_db(csv_path, db_path)
+            # A fresh SQLiteTarDb, not a reused one: its thread-local
+            # connections are opened lazily, so this guarantees every thread
+            # reads the file we just rebuilt rather than one it had already
+            # opened before the rebuild.
+            self._db = SQLiteTarDb(db_path)
+            print(f"  tar1090_db: active via SQLite (0 MB RAM overhead)")
+        elif not isinstance(self._db, SQLiteTarDb):
+            self._db = SQLiteTarDb(db_path)
+            print(f"  tar1090_db: active via SQLite (0 MB RAM overhead)")
 
 
 def _parse_db_flags(raw: str) -> int | None:
@@ -123,11 +211,11 @@ def _parse_db_flags(raw: str) -> int | None:
     return sum(1 << i for i, c in enumerate(s) if c == "1")
 
 
-def _needs_refresh(csv_path: Path) -> bool:
+def _needs_refresh(csv_path: Path, refresh_days: int = _REFRESH_DAYS) -> bool:
     if not csv_path.exists():
         return True
     age_seconds = time.time() - csv_path.stat().st_mtime
-    return age_seconds > _REFRESH_DAYS * 86400
+    return age_seconds > refresh_days * 86400
 
 
 def _download(csv_path: Path) -> None:
@@ -213,34 +301,18 @@ def _load_db(csv_path: Path) -> dict[str, tuple[str | None, str | None, str | No
     return db
 
 
-KEYS = {"type"}
+KEYS = {"refresh_days"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> Tar1090DbEnricher:
     csv_path = ctx.module_dir / "aircraft.csv"
     db_path  = ctx.module_dir / "aircraft.db"
+    refresh_days = _validate_refresh_days(cfg.get("refresh_days"))
 
-    if _needs_refresh(csv_path):
-        try:
-            _download(csv_path)
-        except Exception as exc:
-            if not csv_path.exists():
-                print(f"  tar1090_db: download failed ({exc}), enrichment disabled")
-                return Tar1090DbEnricher(db={})
-
-    if csv_path.exists():
-        stale_csv     = not db_path.exists() or db_path.stat().st_mtime < csv_path.stat().st_mtime
-        stale_schema  = db_path.exists() and _db_schema_version(db_path) != _SCHEMA_VERSION
-        if stale_csv or stale_schema:
-            if stale_schema and not stale_csv:
-                print(f"  tar1090_db: index schema is out of date — rebuilding {db_path.name} …")
-            else:
-                print(f"  tar1090_db: building SQLite index {db_path.name} …")
-            _build_sqlite_db(csv_path, db_path)
-        sqlite_db = SQLiteTarDb(db_path)
-        print(f"  tar1090_db: active via SQLite (0 MB RAM overhead)")
-        return Tar1090DbEnricher(sqlite_db)
-
-    return Tar1090DbEnricher(db={})
+    # No download or index build here: the refresh check now runs from
+    # process() (gated to once an hour) so a long-lived instance keeps
+    # re-checking instead of only ever checking at construction. The first
+    # process() call performs the initial download/build, same as before.
+    return Tar1090DbEnricher(db=None, csv_path=csv_path, db_path=db_path, refresh_days=refresh_days)
 
 

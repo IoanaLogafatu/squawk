@@ -18,7 +18,7 @@ class PassThrough(BaseModule):
         return aircraft
 
 
-KEYS = {"type"}
+KEYS: set[str] = set()   # no options of its own
 
 
 def get(cfg: dict, ctx: ModuleContext) -> PassThrough:

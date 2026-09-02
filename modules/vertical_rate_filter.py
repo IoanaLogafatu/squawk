@@ -51,7 +51,7 @@ class VerticalRateFilter(BaseModule):
         return filtered
 
 
-KEYS = {"type", "min_fpm", "max_fpm", "mode", "threshold"}
+KEYS = {"min_fpm", "max_fpm", "mode", "threshold"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> VerticalRateFilter:

@@ -11,6 +11,7 @@ Covers:
   5. Multi-processor / legacy-processor loading
   6. Structural validation — missing blocks and required keys are rejected
      with a ConfigError naming the offending block (see brief-config-strictness.md)
+  7. Data sources — [data_sources.*] loading and the module 'source' cross-check
 """
 
 from __future__ import annotations
@@ -739,4 +740,157 @@ def test_every_module_declares_keys():
     for info in pkgutil.iter_modules(modules.__path__):
         m = importlib.import_module(f"modules.{info.name}")
         assert hasattr(m, "KEYS"), f"modules/{info.name}.py has no KEYS"
-        assert "type" in m.KEYS
+
+
+def test_common_keys_are_recognised_for_every_module():
+    # 'type' and 'source' used to be declared in each module's own KEYS, which
+    # meant nine files had to remember a rule the factory already enforces.
+    # Asserting the guarantee once, where it actually lives, replaces that.
+    from modules import _COMMON_KEYS
+    assert _COMMON_KEYS == {"type", "source"}
+
+
+def test_no_module_redeclares_a_common_key():
+    import importlib, pkgutil, modules
+    from modules import _COMMON_KEYS
+    for info in pkgutil.iter_modules(modules.__path__):
+        m = importlib.import_module(f"modules.{info.name}")
+        redundant = m.KEYS & _COMMON_KEYS
+        assert not redundant, (
+            f"modules/{info.name}.py lists {', '.join(sorted(redundant))} in its own KEYS — "
+            "the factory recognises those on every block; KEYS is for a module's own options"
+        )
+
+
+def test_empty_keys_still_checks_unknown_keys(capsys):
+    # Removing 'type' left three modules with KEYS = set(). An empty set is
+    # falsy, so this only holds while the factory tests `is not None` — write
+    # `if keys:` there instead and those three silently stop checking.
+    from modules import get_module
+    get_module("closest_filter", {"typo_key": 1})
+    captured = capsys.readouterr()
+    assert "typo_key" in captured.out
+    assert "closest_filter" in captured.out
+
+
+def test_type_resolves_for_a_module_that_does_not_declare_it(capsys):
+    # The resolution path, cfg.get("type", ...), is independent of KEYS — but
+    # it is the one that would break silently if the two were ever coupled.
+    from modules import get_module
+    from modules.closest_filter import ClosestFilter
+
+    instance = get_module("nearest", {"type": "closest_filter"})
+    assert isinstance(instance, ClosestFilter)
+    # ...and 'type' draws no unrecognised-key warning despite being absent
+    # from closest_filter's now-empty KEYS.
+    assert capsys.readouterr().out == ""
+
+
+# ===========================================================================
+# 7. Data sources — [data_sources.*] loading and the module cross-check
+# ===========================================================================
+
+def test_data_source_without_type_rejected_naming_the_block(tmp_path):
+    cfg_file = _write(tmp_path, """
+[data_sources.vrs]
+url = "https://example.invalid/data.zip"
+""")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "vrs" in message
+    assert "type" in message
+
+
+def test_data_source_block_loads_with_name_type_and_raw_cfg(tmp_path):
+    cfg_file = _write(tmp_path, """
+[data_sources.vrs]
+type = "vrs_standing_data"
+refresh_hour = 4
+
+[modules.vrs_route]
+source = "vrs"
+""")
+    loaded = load_config(cfg_file)
+    source = loaded.data_sources["vrs"]
+    assert source.name == "vrs"
+    assert source.type == "vrs_standing_data"
+    # The whole block, 'type' included — source types validate their own keys.
+    assert source.cfg == {"type": "vrs_standing_data", "refresh_hour": 4}
+
+
+def test_no_data_sources_section_is_an_empty_dict(tmp_path):
+    loaded = load_config(_write(tmp_path, ""))
+    assert loaded.data_sources == {}
+
+
+def test_module_naming_a_missing_source_rejected_naming_both(tmp_path):
+    cfg_file = _write(tmp_path, """
+[modules.vrs_route]
+source = "vrs"
+""")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "vrs_route" in message
+    assert "vrs" in message
+
+
+def test_module_naming_an_existing_source_accepted(tmp_path):
+    cfg_file = _write(tmp_path, """
+[data_sources.vrs]
+type = "vrs_standing_data"
+
+[modules.vrs_route]
+source = "vrs"
+""")
+    loaded = load_config(cfg_file)
+    assert loaded.modules["vrs_route"]["source"] == "vrs"
+    assert "vrs" in loaded.data_sources
+
+
+def test_source_on_an_ingestor_referenced_module_accepted(tmp_path):
+    # An ingestor references modules by name, and the block it resolves to is
+    # the same [modules.*] block a chain would use — so one scan covers both
+    # of the places _check_module_blocks covers.
+    cfg_file = _write(tmp_path, """
+[ingestors.personal_adsb]
+enabled = false
+receivers = []
+modules = ["vrs_route"]
+
+[data_sources.vrs]
+type = "vrs_standing_data"
+
+[modules.vrs_route]
+source = "vrs"
+""")
+    assert load_config(cfg_file) is not None
+
+
+def test_unreferenced_data_source_block_warns_but_loads(tmp_path, capsys):
+    cfg_file = _write(tmp_path, """
+[data_sources.vrs]
+type = "vrs_standing_data"
+""")
+    loaded = load_config(cfg_file)
+    assert loaded is not None
+    captured = capsys.readouterr()
+    assert "vrs" in captured.out
+    assert "not referenced" in captured.out
+
+
+def test_data_source_and_module_problems_reported_together(tmp_path):
+    # Same "every problem in one message" contract the other sections keep.
+    cfg_file = _write(tmp_path, """
+[data_sources.vrs]
+url = "https://example.invalid/data.zip"
+
+[modules.vrs_route]
+source = "elsewhere"
+""")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    message = str(exc_info.value)
+    assert "vrs" in message
+    assert "elsewhere" in message

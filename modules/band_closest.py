@@ -45,7 +45,7 @@ class BandClosest(BaseModule):
         return [nearest[band] for band in sorted(nearest, reverse=True)]
 
 
-KEYS = {"type"}
+KEYS: set[str] = set()   # no options of its own
 
 
 def get(cfg: dict, ctx: ModuleContext) -> BandClosest:

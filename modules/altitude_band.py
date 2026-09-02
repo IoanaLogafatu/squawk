@@ -99,7 +99,7 @@ class AltitudeBand(BaseModule):
         return aircraft
 
 
-KEYS = {"type", "edges"}
+KEYS = {"edges"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> AltitudeBand:

@@ -145,7 +145,11 @@ edges = [10000, 20000, 30000]
 # empty is fine; see docs/modules-guide.md.
 [modules.closest_filter]
 [modules.band_closest]
+
 [modules.tar1090_db]
+# refresh_days = 30   # Max age (days) of the cached CSV before it's
+                       # redownloaded. Checked hourly, not just at startup.
+                       # Optional; 30 is the default.
 
 [modules.adsbdb]
 # Airframe and route are looked up separately, so an unknown hex no longer
@@ -154,6 +158,27 @@ edges = [10000, 20000, 30000]
 # log_unresolved = false   # Append a JSON line per route adsbdb could not
                            # resolve to modules/adsbdb/route/unresolved.jsonl.
                            # Diagnostic only; hand-read, never rotated.
+
+
+# ---------------------------------------------------------------------------
+# Data sources
+# ---------------------------------------------------------------------------
+# External datasets shared between modules: one download, one freshness check,
+# one instance, however many modules name it. Files live under
+# <data_dir>/data_sources/<name>/. See docs/data-sources-guide.md.
+#
+# No source types ship yet, so this section is illustrative. A module opts in
+# with source = "<name>" on its own block; a name with no matching block here
+# is rejected at startup.
+#
+# [data_sources.vrs]
+# type = "vrs_standing_data"   # resolves to data_sources/vrs_standing_data.py
+#
+# [modules.vrs_route]
+# source = "vrs"               # shares the one 'vrs' download
+#
+# [modules.vrs_aircraft]
+# source = "vrs"               # ...and so does this one
 
 
 # ---------------------------------------------------------------------------

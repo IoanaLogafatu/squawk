@@ -37,7 +37,7 @@ class RegistrationFilter(BaseModule):
         return filtered
 
 
-KEYS = {"type", "registrations"}
+KEYS = {"registrations"}
 
 
 def get(cfg: dict, ctx: ModuleContext) -> RegistrationFilter:

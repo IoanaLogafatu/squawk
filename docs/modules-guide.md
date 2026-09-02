@@ -4,7 +4,7 @@ A **module** is a transform over a list of `Aircraft` objects. The processor hol
 
 Modules are how Squawk does everything between "aircraft observed" and "aircraft displayed": filtering down to what matters, enriching with external data, and rendering to screens. All three share one interface — the processor doesn't distinguish a filter from an enrichment from a display.
 
-This guide covers writing any module. For display-specific concerns (background threads, hardware throttling) see the dedicated **Display Modules** guide.
+This guide covers writing any module. For display-specific concerns (background threads, hardware throttling) see the dedicated **Display Modules** guide. For datasets shared between modules — one download, one freshness check, however many modules read it — see the **Data Sources** guide.
 
 ## What makes a class a "module"
 
@@ -183,10 +183,20 @@ Today, getting the order right is the configurer's responsibility. A planned **d
     The directory is keyed on module *type*, so two config blocks aliasing the same module
     share one cache. That is usually what you want. If it is not, key your files within the
     directory.
-2b. **Recommended: declare `KEYS`.** A module-level `KEYS = {"type", "your_option", ...}` set
+
+    For a dataset another module also reads, don't download it into `ctx.module_dir`: declare
+    a `[data_sources.<name>]` block, name it with `source = "<name>"`, and resolve it with
+    `ctx.data_source("<name>")`. One download is then shared by every module that names it.
+    See the Data Sources guide.
+2b. **Recommended: declare `KEYS`.** A module-level `KEYS = {"your_option", ...}` set
     lets `get_module()` warn when a config block has a key it doesn't recognise — catches a
     misspelled option (`belwo = 5000`) that would otherwise fail silently. Not required; a
     module with no `KEYS` is simply not checked.
+
+    List **only your own options**. `type` and `source` are recognised on every block
+    whatever its type — the factory subtracts them (`_COMMON_KEYS`) before checking, so no
+    module declares them. A module with no options of its own declares an empty set, which
+    still means "check my keys", unlike having no `KEYS` at all.
 3. **Always return a list.** Empty if needed. Never `None`.
 4. **Guard `UNKNOWN`.** Any field on any aircraft can be `None`. Plan accordingly.
 5. **Document your category.** A docstring saying "this is a filter / enrichment / display" helps the next person reading config.

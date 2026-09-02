@@ -75,14 +75,22 @@ class ProcessorConfig:
 
 
 @dataclass
+class DataSourceConfig:
+    name: str
+    type: str
+    cfg:  dict   # the full raw block, including 'type' — sources validate their own keys
+
+
+@dataclass
 class SquawkConfig:
-    squawk:     SquawkSystemConfig
-    observer:   ObserverConfig
-    storage:    StorageConfig
-    ingestors:  dict[str, dict]
-    processors: dict[str, ProcessorConfig] = field(default_factory=dict)
-    display:    dict = field(default_factory=dict)   # Per-display config keyed by module name
-    modules:    dict = field(default_factory=dict)   # Per-module config keyed by module name
+    squawk:       SquawkSystemConfig
+    observer:     ObserverConfig
+    storage:      StorageConfig
+    ingestors:    dict[str, dict]
+    processors:   dict[str, ProcessorConfig] = field(default_factory=dict)
+    display:      dict = field(default_factory=dict)   # Per-display config keyed by module name
+    modules:      dict = field(default_factory=dict)   # Per-module config keyed by module name
+    data_sources: dict[str, DataSourceConfig] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +180,23 @@ def _load_processors(raw: dict, errors: list[str]) -> dict[str, ProcessorConfig]
     return processors
 
 
+def _load_data_sources(raw: dict, errors: list[str]) -> dict[str, DataSourceConfig]:
+    sources = raw.get("data_sources", {})
+    if not isinstance(sources, dict):
+        return {}
+
+    result: dict[str, DataSourceConfig] = {}
+    for name, cfg in sources.items():
+        if not isinstance(cfg, dict) or "type" not in cfg:
+            errors.append(
+                f"[data_sources.{name}] is missing a 'type' key — name the source type, "
+                'e.g. type = "vrs_standing_data".'
+            )
+            continue
+        result[name] = DataSourceConfig(name=name, type=cfg["type"], cfg=cfg)
+    return result
+
+
 def _load_display(raw: dict) -> dict:
     return raw.get("display", {})
 
@@ -204,6 +229,31 @@ def _check_module_blocks(
                     f"[ingestors.{ing_name}] references module '{mod_name}' but there is no "
                     f"[modules.{mod_name}] block. Add one — it may be empty."
                 )
+
+
+def _check_data_source_blocks(
+    modules:      dict,
+    data_sources: dict[str, DataSourceConfig],
+    errors:       list[str],
+) -> None:
+    """Every module naming source = "x" needs a [data_sources.x] block.
+
+    Scanning [modules.*] covers both places _check_module_blocks does: a
+    processor and an ingestor both reference modules by name, and both resolve
+    to the same [modules.<name>] block, which is the only place a module's
+    'source' key can live.
+    """
+    for mod_name, cfg in modules.items():
+        if not isinstance(cfg, dict):
+            continue
+        source = cfg.get("source")
+        if source is None:
+            continue
+        if source not in data_sources:
+            errors.append(
+                f"[modules.{mod_name}] names source '{source}' but there is no "
+                f"[data_sources.{source}] block. Add one, with a 'type' key."
+            )
 
 
 def _check_display_blocks(
@@ -339,10 +389,11 @@ def _check_http_panels(
 
 
 def _warn_unreferenced_blocks(
-    processors: dict[str, ProcessorConfig],
-    ingestors:  dict[str, dict],
-    modules:    dict,
-    display:    dict,
+    processors:   dict[str, ProcessorConfig],
+    ingestors:    dict[str, dict],
+    modules:      dict,
+    display:      dict,
+    data_sources: dict[str, DataSourceConfig],
 ) -> None:
     referenced_modules: set[str] = set()
     for p in processors.values():
@@ -359,6 +410,14 @@ def _warn_unreferenced_blocks(
     for name in display:
         if name not in referenced_displays:
             print(f"  config: [display.{name}] is not referenced by any chain — ignored")
+
+    referenced_sources = {
+        cfg["source"] for cfg in modules.values()
+        if isinstance(cfg, dict) and "source" in cfg
+    }
+    for name in data_sources:
+        if name not in referenced_sources:
+            print(f"  config: [data_sources.{name}] is not referenced by any module — ignored")
 
 
 # ---------------------------------------------------------------------------
@@ -388,30 +447,33 @@ def load_config(path: Path = CONFIG_PATH) -> SquawkConfig:
 
     errors: list[str] = []
 
-    squawk     = _load_squawk(raw, errors)
-    observer   = _load_observer(raw, errors)
-    storage    = _load_storage(raw, errors)
-    ingestors  = _load_ingestors(raw, errors)
-    processors = _load_processors(raw, errors)
-    display    = _load_display(raw)
-    modules    = raw.get("modules", {})
+    squawk       = _load_squawk(raw, errors)
+    observer     = _load_observer(raw, errors)
+    storage      = _load_storage(raw, errors)
+    ingestors    = _load_ingestors(raw, errors)
+    processors   = _load_processors(raw, errors)
+    display      = _load_display(raw)
+    modules      = raw.get("modules", {})
+    data_sources = _load_data_sources(raw, errors)
 
     _check_module_blocks(processors, ingestors, modules, errors)
+    _check_data_source_blocks(modules, data_sources, errors)
     _check_display_blocks(processors, display, errors)
     _check_http_panels(processors, display, errors)
 
     _fail(errors)
 
-    _warn_unreferenced_blocks(processors, ingestors, modules, display)
+    _warn_unreferenced_blocks(processors, ingestors, modules, display, data_sources)
 
     return SquawkConfig(
-        squawk     = squawk,
-        observer   = observer,
-        storage    = storage,
-        ingestors  = ingestors,
-        processors = processors,
-        display    = display,
-        modules    = modules,
+        squawk       = squawk,
+        observer     = observer,
+        storage      = storage,
+        ingestors    = ingestors,
+        processors   = processors,
+        display      = display,
+        modules      = modules,
+        data_sources = data_sources,
     )
 
 
