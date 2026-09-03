@@ -77,7 +77,7 @@ class VrsStandingData(BaseDataSource):
     def directory(self) -> Path:
         return self._dir
 
-KEYS = {"refresh_hour"}
+KEYS = {"refresh_days"}
 
 def get(cfg: dict, ctx: DataSourceContext) -> VrsStandingData:
     return VrsStandingData(cfg, ctx)
@@ -87,6 +87,8 @@ def get(cfg: dict, ctx: DataSourceContext) -> VrsStandingData:
 2. **Expose `get(cfg, ctx) -> BaseDataSource`** — the same factory shape modules use.
 3. **Declare `KEYS`** with your own options only. `type` is recognised for you.
 4. **Write only inside `ctx.source_dir`**, and create it when you first write. The factory does not create it.
+
+`data_sources/vrs_standing_data.py` is the first worked example of a concrete `BaseDataSource` and is worth reading end to end: a whole-repo zip download (temp-and-replace, same failure-safety concern as `DiskDriveStorage`'s writes), eight tables loaded into one SQLite file in one build pass, and `ensure_fresh()` gating that behind the elapsed-days policy above.
 
 ### The `ensure_fresh()` contract
 
@@ -99,14 +101,14 @@ def ensure_fresh(self) -> None:
 
 **Idempotent.** Ten calls in a row must produce one download, not ten.
 
-**Refresh policy is yours.** `BaseDataSource` deliberately does not prescribe one, because the two shapes already in view differ:
+**Refresh policy is yours.** `BaseDataSource` deliberately does not prescribe one:
 
 | Source | Policy |
 |---|---|
 | tar1090 CSV | Stale after N days; check the age periodically |
-| VRS standing data | Published once daily at a known hour; have I got today's yet? |
+| VRS standing data | Stale after N days (default 7), checked against the built DB file's own mtime |
 
-Forcing either shape onto the other would be wrong, so the base class fixes only the contract above and leaves the decision to each type.
+These two look alike — both are elapsed-days thresholds — and that similarity is itself worth flagging rather than assuming: `vrs_standing_data` was originally scoped with a "published once daily at a known hour, have I got today's yet" policy (routes/airports only, matching VRS's daily publish cadence). Once the source grew to load the entire repo — eight tables in one build — that policy was dropped in favour of reusing tar1090's simpler elapsed-days shape, on the judgement that a week of headroom is enough for a dataset this size. The two sources reached the same policy *shape* independently, not because one was copied from the other's contract — a future source with a genuine "once daily at a known hour" publish cadence should still implement that shape itself, the way this one very nearly did.
 
 **Don't raise.** A source that throws from `ensure_fresh()` takes its caller's cycle with it. A failed download with a usable cached file on disk is a warning, not an exception.
 
