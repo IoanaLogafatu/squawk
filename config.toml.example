@@ -167,24 +167,27 @@ edges = [10000, 20000, 30000]
 # one instance, however many modules name it. Files live under
 # <data_dir>/data_sources/<name>/. See docs/data-sources-guide.md.
 #
-# vrs_standing_data ships and works today (the whole VRS standing-data repo —
+# vrs_standing_data ships and works today: the whole VRS standing-data repo —
 # aircraft, airlines, airports, code-blocks, countries, model-type,
-# registration-prefixes, routes — into one SQLite file, refreshed weekly), but
-# no module consumes it yet, so the block below is commented out: an
-# unreferenced [data_sources.*] block only warns, but there is nothing to
-# enable until a consumer module (e.g. vrs_route) is wired in. A module opts
-# in with source = "<name>" on its own block; a name with no matching block
-# here is rejected at startup.
-#
-# [data_sources.vrs]
-# type         = "vrs_standing_data"   # resolves to data_sources/vrs_standing_data.py
-# refresh_days = 7                     # default; rebuild when the DB is older than this
-#
-# [modules.vrs_route]
-# source = "vrs"               # shares the one 'vrs' download
+# registration-prefixes, routes — into one SQLite file, refreshed weekly.
+# vrs_route (below) is its first real consumer.
+
+[data_sources.vrs]
+type         = "vrs_standing_data"
+# refresh_days = 7   # default; rebuild when the DB is older than this
+
+[modules.vrs_route]
+source = "vrs"
+# log_level = "errors"   # "none" | "errors" | "verbose" — default "errors".
+                          # Console diagnostics only; separate from the
+                          # unresolved-route log this module always writes
+                          # to modules/vrs_route/unresolved.jsonl.
+
+# A second module naming source = "vrs" would share the same one download —
+# that pooling is the whole point of a data source. e.g.:
 #
 # [modules.vrs_aircraft]
-# source = "vrs"               # ...and so does this one
+# source = "vrs"
 
 
 # ---------------------------------------------------------------------------

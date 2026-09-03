@@ -37,6 +37,14 @@ STALE_SECONDS = 60
 
 This is the single global threshold for what counts as a live aircraft. It is not configurable — 60 seconds is always correct for a live system. Backends import and enforce it; nothing outside storage ever needs to know about it.
 
+### `retrieve_aircraft()` has a second caller — and `STALE_SECONDS` does double duty
+
+`retrieve_aircraft(hex_id)` was originally read only by the display/processor path. `personal_adsb`'s ingest loop now calls it too, at the *start* of each cycle, to carry a hex's already-enriched `airframe`/`route` fields forward onto the freshly-built `Aircraft` for that hex before `tar1090_db`/`vrs_route` run — see `_carry_forward_enrichment()` in `ingestor/personal_adsb/ingestor.py`. Every enrichment module already guards its writes with `if field is None`, so once a field is carried forward, the module that would have re-derived it sees the field already answered and skips its own write — no module changed to get this.
+
+This is why no second threshold was introduced for "how long do we trust an aircraft's enrichment without redoing it": `STALE_SECONDS` was already exactly that question, just asked from the read path only. `retrieve_aircraft()` returning `None` past `STALE_SECONDS` already meant "treat this as gone" for a display; it now also means "treat this as a new flight, re-enrich in full" for the ingest loop. Deliberate, not a coincidence — a hex silent long enough to leave the display has just as plausibly moved on to a different aircraft or flight, so trusting its stale enrichment would be wrong for the same reason showing it would be. **Do not split this into two constants** without a concrete reason the two questions should diverge; today they're the same question asked twice.
+
+The one field this can't carry forward safely by hex alone is `route`: an aircraft's ICAO hex is stable for the life of the airframe, but its callsign changes flight to flight. `_carry_forward_enrichment()` merges `route` only when the stored record's `callsign` matches the freshly-converted one for that cycle (both `None` counts as a match); a changed callsign means a different flight, and the old route data is left behind rather than carried onto it.
+
 ## The interface
 
 ```python

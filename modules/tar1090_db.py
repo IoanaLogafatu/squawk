@@ -97,6 +97,24 @@ def _validate_refresh_days(value: object) -> int:
     return value
 
 
+def _needs_airframe(a: Aircraft) -> bool:
+    """True if any field this module could fill is still UNKNOWN.
+
+    Same convention as vrs_route's _needs_route(): only the fields this
+    module itself ever writes are checked — category, manufacturer and
+    operator come from elsewhere (adsbdb, the converter), so including them
+    here would make every aircraft look permanently incomplete and defeat
+    the point of the guard.
+    """
+    af = a.airframe
+    return (
+        af.registration     is None or
+        af.type_code        is None or
+        af.type_description is None or
+        af.db_flags         is None
+    )
+
+
 class Tar1090DbEnricher(BaseModule):
 
     def __init__(
@@ -124,6 +142,8 @@ class Tar1090DbEnricher(BaseModule):
             return aircraft
         for a in aircraft:
             if not a.meta.icao_hex:
+                continue
+            if not _needs_airframe(a):
                 continue
             row = self._db.get(a.meta.icao_hex)
             if row is None:

@@ -24,6 +24,7 @@ For the mechanics of writing a new one, see the **Modules Developer Guide** and 
 | `registration_filter` | Module — Filter | `[modules.registration_filter]` | Keeps only a configured tail-number watchlist |
 | `tar1090_db` | Module — Enrichment | *(none)* | Fills registration/type from the tar1090 CSV |
 | `altitude_band` | Module — Enrichment | `[modules.altitude_band]` | Tags each aircraft with a flight-level band letter |
+| `vrs_route` | Module — Enrichment | `source`, `log_level` | Fills route (origin/destination/airline) from VRS standing-data |
 | `adsbdb` | Module — Enrichment | `log_unresolved` | Fills manufacturer, owner, and route from adsbdb.com |
 | `pass_through` | Module — Utility | *(none)* | No-op placeholder chain slot |
 | `console` | Display | `[display.console]` | Prints the nearest aircraft to stdout |
@@ -224,6 +225,31 @@ Bands are lettered from `A` upward and assignment is half-open upward — an alt
 - **Source-independent, so every ingestor lists it** — unlike `tar1090_db`, which fills gaps a particular source leaves. Ordering within an ingestor's `modules` list does not matter; this depends only on what the converter already set.
 - **Derived state in storage.** The letter is recomputed from `altitude_feet` on every ingest cycle and written beside it, so it cannot go stale relative to the altitude it came from.
 
+#### `vrs_route`
+
+Fills the route block (`route.origin_*`, `route.destination_*`, `route.airline_name`) from [VRS standing-data](https://github.com/vradarserver/standing-data) — routes joined against airports and countries — via the `vrs_standing_data` data source. See the Data Sources guide for the source itself; this is its first real consumer.
+
+```toml
+[data_sources.vrs]
+type = "vrs_standing_data"
+
+[modules.vrs_route]
+source    = "vrs"
+log_level = "errors"   # "none" | "errors" | "verbose" — default "errors"
+```
+
+- **Callsign lookup, first/last airport rule.** For each aircraft with a callsign and any route field still `UNKNOWN`, looks up the callsign in the routes table. A route's `AirportCodes` is a hyphen-separated list of two or more ICAO codes (`LGKR-EGNX`, or a multi-stop `SBGL-SAEZ-SGAS`); **first and last** become origin and destination, the two-leg case the wall displays — a middle stop is discarded, not modelled.
+- **Round trips are not an error.** `EGAA-GCRR-EGAA` — first and last identical — is a real positioning flight and resolves with `origin_iata == destination_iata`, not rejected or logged as suspect. Do not "fix" this later.
+- **Joins on ICAO, not the dataset's own `Code` column.** `routes.airport_codes` values are ICAO codes; `airports.code` happens to equal `airports.icao` in some real shards but is not guaranteed to in general, so the join is always against `airports.icao`.
+- **`*_municipality` comes from `airports.location`** — a city (e.g. "Fort Myers"), not a repeat of the airport name. **`*_country`** resolves `airports.country_iso2` through the `countries` table to a full name (e.g. `"Spain"`), matching the shape `adsbdb` already writes to the same field — never the raw ISO code.
+- **`flight_number` and `airline_country` are never written by this module.** Verified against a real shard: VRS's `routes.Code` is ICAO-style (`"VLG"`, Vueling's ICAO code) even for airlines with a distinct IATA code (`"VY"`), not the IATA-style 2-letter-prefix format `AircraftRoute.flight_number`'s docstring expects (`"BA117"`). Writing an ICAO-shaped value into that field to fill it would be wrong. `airline_country` has no source in VRS data at all — the `airlines` table carries no country column. **This is a real gap, not a deferred one:** as of this module shipping, `adsbdb` — the only thing that could fill either field — has been removed from both processor chains (see Wiring note below), so nothing currently fills `flight_number` or `airline_country`. If `adsbdb` is reintroduced as a fallback, it remains the thing that fills these two; do not attempt to derive them from VRS's `Code`/`Number` columns instead.
+- **Field writes are guarded**, same as `adsbdb`'s `_apply` — a value already present survives. This is what lets `vrs_route` run ahead of any future fallback in a chain without clobbering what that fallback already found.
+- **Unresolved logging is unconditional**, not a config toggle. One JSON line per `(hex, callsign)` appended to `<data_dir>/modules/vrs_route/unresolved.jsonl`, reason `no_callsign` or `unknown_callsign`. With `adsbdb` out of the chain, this file is the *only* visibility into what VRS-only route coverage is missing — the evidence any future "bring back adsbdb as a fallback" decision should be made from.
+- **`log_level`** (default `"errors"`) gates only the console diagnostic, a separate mechanism from the unresolved-route log above: `"none"` is silent, `"errors"` prints one line per callsign that resolved to nothing (`no_callsign` or `unknown_callsign`), `"verbose"` additionally prints one line per successful hit (`vrs_route: callsign BAW117 returned LHR - JFK`).
+- **Negative-result cache, 1 hour.** A callsign confirmed missing (`unknown_callsign`) or an aircraft with no callsign at all (`no_callsign`) is remembered for `_NOT_FOUND_TTL_SECONDS` (3600s) — same number and reasoning as `adsbdb`'s own `_ROUTE_TTL_SECONDS`: a route is a property of today's flight, so a miss now won't become a hit in the next 5 seconds. This is the same convention repeated, not a one-off: `adsbdb`'s not-found marker (see below) is the direct precedent this borrows both the shape and the number from. While a key is within its window, the aircraft is skipped **completely** before anything else runs — no `get_route()` call, no console line at *any* `log_level`, and no `unresolved.jsonl` append. Without this, a callsign genuinely absent from VRS would be re-queried, re-printed, and re-logged every single cycle for as long as that hex stays in the pot — the carry-forward brief (`brief-carry-forward-enrichment.md`) fixed the equivalent problem for successful lookups; this is the mirror case for misses. `unknown_callsign` keys on the callsign itself (one flight, one answer); `no_callsign` keys on `icao_hex` instead, since a missing callsign isn't a VRS gap at all — some aircraft (GA, military, low-altitude) structurally never broadcast one. A key that later resolves to a hit (plausible after `vrs_standing_data`'s weekly refresh — though only checked once the key's TTL has actually expired, not the instant the dataset changes) is cleared rather than left stale beside the fresh result.
+
+**Wiring note:** as of this module shipping, `adsbdb` has been removed from both `[processors.high_bands]` and `[processors.low_bands]` entirely — not just superseded for routes. It still fills `airframe.manufacturer`/`registration`/`type_description`/`operator` when present in a chain, so its absence means those fields, along with `flight_number` and `airline_country` above, currently have no fallback source. Don't assume `adsbdb` is still providing airframe-gap coverage just because its `[modules.adsbdb]` block is still present in config — an unreferenced module block is kept (dormant) rather than deleted, exactly so it can be wired back into a chain later without rewriting it from scratch.
+
 #### `adsbdb`
 
 Fills `airframe.manufacturer`, `airframe.registration`, `airframe.type_description`, `airframe.operator` (registered owner), and the full route block (`route.airline_name`, `route.airline_country`, `route.origin_*`, `route.destination_*`) from [adsbdb.com](https://www.adsbdb.com/).
@@ -263,7 +289,9 @@ The route block carries both the airport's full name and the city it serves — 
 |---|---|---|
 | `log_unresolved` | `false` | Append one JSON line per aircraft whose route adsbdb could not resolve to `<data_dir>/modules/adsbdb/route/unresolved.jsonl` |
 
-`log_unresolved` records what **adsbdb** could not resolve — not what the pipeline as a whole failed to resolve. A later fallback route source may fill some of these in; the distinction matters as soon as a second source exists. Each line carries `at`, `hex`, `callsign`, `registration` and a `reason`, deduplicated on `(hex, callsign)` for the life of the process:
+`log_unresolved` records what **adsbdb** could not resolve — not what the pipeline as a whole failed to resolve. A later fallback route source may fill some of these in; the distinction matters as soon as a second source exists. Each line carries `at`, `hex`, `callsign`, `registration` and a `reason`, deduplicated on `(hex, callsign)` for the life of the process.
+
+Flagged here, not fixed: this dedup is permanent, not TTL-windowed like `vrs_route`'s negative-result cache above. A hex that leaves the pot and comes back days later carrying the same still-unresolved callsign gets no fresh log line — the first process-lifetime entry is the only one it will ever get. `vrs_route`'s TTL approach solves the opposite-facing problem (a *continuously* in-range miss re-logging every cycle) but also happens to re-arm after an hour, which this permanent dedup does not. Worth reconciling if `adsbdb` is revisited.
 
 - `no_callsign` — the aircraft has not transmitted identity, so there was nothing to look up.
 - `unknown_callsign` — adsbdb answered definitively that it holds no route. A real gap in its data, not fixable here.

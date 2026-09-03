@@ -25,6 +25,7 @@ from schemas.aircraft import Aircraft
 
 if TYPE_CHECKING:
     from modules import BaseModule
+    from storage import BaseStorage
 
 SOURCE_NAME = "PersonalADSB"
 
@@ -106,6 +107,91 @@ def _build_aircraft(merged: list[tuple[dict, datetime]]) -> list[Aircraft]:
 
 
 # ---------------------------------------------------------------------------
+# Carry forward stable enrichment
+# ---------------------------------------------------------------------------
+
+def _carry_forward_enrichment(aircraft: list[Aircraft], storage: "BaseStorage") -> list[Aircraft]:
+    """Fill each freshly-built Aircraft's UNKNOWN airframe/route fields from
+    the matching hex's record already in storage, so hex/callsign-keyed
+    enrichment modules (tar1090_db, vrs_route) don't repeat a lookup they've
+    already done for an aircraft still in range.
+
+    storage.retrieve_aircraft(hex) already returns None for a hex that is
+    absent *or* stale past STALE_SECONDS — that's the only staleness check
+    needed here; STALE_SECONDS was already the right shape for "how long do
+    we trust this aircraft's enrichment without redoing it", the same
+    question it already answers for "when does an aircraft disappear from
+    the display".
+
+    Every enrichment module already guards its own writes with
+    `if field is None`, so once this fills a field, that module's own
+    lookup naturally sees it's already answered and skips itself — no
+    change needed in tar1090_db.py or vrs_route.py.
+
+    meta, location and direction are never touched — always this cycle's
+    fresh raw data. Within route, callsign and squawk_code are excluded for
+    the same reason: the converter already set them from this cycle's raw
+    payload, not from enrichment.
+    """
+    for a in aircraft:
+        existing = storage.retrieve_aircraft(a.meta.icao_hex)
+        if existing is None:
+            continue   # new sighting, or one old enough to treat as a fresh flight
+
+        existing_af = existing.get("airframe") or {}
+        af = a.airframe
+        if af.registration is None:
+            af.registration = existing_af.get("registration")
+        if af.type_code is None:
+            af.type_code = existing_af.get("type_code")
+        if af.type_description is None:
+            af.type_description = existing_af.get("type_description")
+        if af.category is None:
+            af.category = existing_af.get("category")
+        if af.db_flags is None:
+            af.db_flags = existing_af.get("db_flags")
+        if af.manufacturer is None:
+            af.manufacturer = existing_af.get("manufacturer")
+        if af.operator is None:
+            af.operator = existing_af.get("operator")
+
+        existing_rt = existing.get("route") or {}
+        # Keyed by callsign, not just hex: if the callsign has changed since
+        # the stored record was written, the aircraft has moved on to a
+        # different flight and the old route data must not carry over. Both
+        # sides None (no callsign transmitted either cycle) counts as a
+        # match — nothing distinguishes flights by, safe to carry forward.
+        if a.route.callsign != existing_rt.get("callsign"):
+            continue
+
+        rt = a.route
+        if rt.origin_iata is None:
+            rt.origin_iata = existing_rt.get("origin_iata")
+        if rt.origin_name is None:
+            rt.origin_name = existing_rt.get("origin_name")
+        if rt.origin_municipality is None:
+            rt.origin_municipality = existing_rt.get("origin_municipality")
+        if rt.origin_country is None:
+            rt.origin_country = existing_rt.get("origin_country")
+        if rt.destination_iata is None:
+            rt.destination_iata = existing_rt.get("destination_iata")
+        if rt.destination_name is None:
+            rt.destination_name = existing_rt.get("destination_name")
+        if rt.destination_municipality is None:
+            rt.destination_municipality = existing_rt.get("destination_municipality")
+        if rt.destination_country is None:
+            rt.destination_country = existing_rt.get("destination_country")
+        if rt.flight_number is None:
+            rt.flight_number = existing_rt.get("flight_number")
+        if rt.airline_name is None:
+            rt.airline_name = existing_rt.get("airline_name")
+        if rt.airline_country is None:
+            rt.airline_country = existing_rt.get("airline_country")
+
+    return aircraft
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
@@ -149,6 +235,7 @@ def run(ingest_modules: list["BaseModule"]) -> None:
         if snapshots:
             merged   = _merge_snapshots(snapshots)
             aircraft = _build_aircraft(merged)
+            aircraft = _carry_forward_enrichment(aircraft, storage)
 
             for m in ingest_modules:
                 aircraft = m.process(aircraft)

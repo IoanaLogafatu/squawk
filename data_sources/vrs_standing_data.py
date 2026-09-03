@@ -47,7 +47,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import requests
 
@@ -265,6 +265,21 @@ def _validate_refresh_days(value: object) -> int:
 # Query surface
 # ---------------------------------------------------------------------------
 
+class AirportRow(NamedTuple):
+    name:         str | None
+    iata:         str | None
+    location:     str | None   # municipality the airport serves, e.g. "Reus"
+    country_iso2: str | None
+
+
+class CountryRow(NamedTuple):
+    name: str | None
+
+
+class AirlineRow(NamedTuple):
+    name: str | None
+
+
 class SQLiteVrsDb:
     """Thread-local read connection to the built standing-data SQLite file.
 
@@ -272,9 +287,10 @@ class SQLiteVrsDb:
     separate threads, so a single shared sqlite3.Connection can't be assumed
     safe — same reasoning as SQLiteTarDb.
 
-    Only one query method exists: get_route(), the only one today's consumer
-    needs. Add more as consumers of the other seven tables get built — see
-    the module docstring for why they aren't pre-built speculatively.
+    Query methods are added one at a time, as a consumer actually needs them
+    — see the module docstring for why the other five tables have none yet.
+    get_route() is the original; get_airport()/get_country()/get_airline()
+    were added for vrs_route (brief-vrs-route.md rev 2).
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -296,6 +312,34 @@ class SQLiteVrsDb:
             (callsign,),
         )
         return cursor.fetchone()
+
+    def get_airport(self, icao: str) -> AirportRow | None:
+        """Airport keyed on `airports.icao` — confirmed the correct join
+        column for `routes.airport_codes` values, which are ICAO codes.
+        `airports.code` happens to equal `icao` in at least one real shard
+        but is not guaranteed to in general; don't join on it instead."""
+        cursor = self._cursor()
+        cursor.execute(
+            "SELECT name, iata, location, country_iso2 FROM airports WHERE icao = ?",
+            (icao,),
+        )
+        row = cursor.fetchone()
+        return AirportRow(*row) if row else None
+
+    def get_country(self, iso2: str) -> CountryRow | None:
+        """Country keyed on `countries.iso`."""
+        cursor = self._cursor()
+        cursor.execute("SELECT name FROM countries WHERE iso = ?", (iso2,))
+        row = cursor.fetchone()
+        return CountryRow(*row) if row else None
+
+    def get_airline(self, code: str) -> AirlineRow | None:
+        """Airline keyed on `airlines.code`, joined against
+        `routes.airline_code` — not `airlines.icao`."""
+        cursor = self._cursor()
+        cursor.execute("SELECT name FROM airlines WHERE code = ?", (code,))
+        row = cursor.fetchone()
+        return AirlineRow(*row) if row else None
 
 
 # ---------------------------------------------------------------------------

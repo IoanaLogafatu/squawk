@@ -377,6 +377,68 @@ def test_get_route_returns_expected_columns(tmp_path, fake_zip):
 
 
 # ===========================================================================
+# New accessors for vrs_route (brief-vrs-route.md rev 2): get_airport(),
+# get_country(), get_airline()
+# ===========================================================================
+
+def test_get_airport_is_keyed_on_icao_not_code(tmp_path, fake_zip):
+    # airports/schema-01/HE.csv (real sample) has a row where `Code` (HE34)
+    # differs from `ICAO` (also HE34 in this fixture's row, so key on a
+    # deliberately different pair to prove the join column, not the row).
+    extra = {
+        "airports/schema-01/ZZ/ZZ.csv": (
+            "Code,Name,ICAO,IATA,Location,CountryISO2,Latitude,Longitude,AltitudeFeet\n"
+            "ZZCODE,Mismatch Airport,ZZICAO,MI,Mismatch City,ZZ,1.0,2.0,100\n"
+        ),
+    }
+    repo_dir = tmp_path / "src" / vrs_standing_data._REPO_ROOT
+    _build_repo_tree(repo_dir, extra)
+    zip_path = tmp_path / "src2.zip"
+    _zip_repo(repo_dir, zip_path)
+
+    extract_root = tmp_path / "extract"
+    repo_root = _extract_zip(zip_path, extract_root)
+    db_path = tmp_path / "standing_data.db"
+    _build_sqlite_db(repo_root, db_path)
+
+    db = SQLiteVrsDb(db_path)
+    assert db.get_airport("ZZICAO") == ("Mismatch Airport", "MI", "Mismatch City", "ZZ")
+    assert db.get_airport("ZZCODE") is None   # the Code value must not match
+
+
+def test_get_airport_returns_none_on_miss(tmp_path, fake_zip):
+    extract_root = tmp_path / "extract"
+    repo_root = _extract_zip(fake_zip, extract_root)
+    db_path = tmp_path / "standing_data.db"
+    _build_sqlite_db(repo_root, db_path)
+
+    db = SQLiteVrsDb(db_path)
+    assert db.get_airport("NOSUCH") is None
+
+
+def test_get_country_returns_row_on_hit_and_none_on_miss(tmp_path, fake_zip):
+    extract_root = tmp_path / "extract"
+    repo_root = _extract_zip(fake_zip, extract_root)
+    db_path = tmp_path / "standing_data.db"
+    _build_sqlite_db(repo_root, db_path)
+
+    db = SQLiteVrsDb(db_path)
+    assert db.get_country("GB").name == "United Kingdom"
+    assert db.get_country("ZZ") is None
+
+
+def test_get_airline_returns_row_on_hit_and_none_on_miss(tmp_path, fake_zip):
+    extract_root = tmp_path / "extract"
+    repo_root = _extract_zip(fake_zip, extract_root)
+    db_path = tmp_path / "standing_data.db"
+    _build_sqlite_db(repo_root, db_path)
+
+    db = SQLiteVrsDb(db_path)
+    assert db.get_airline("EXS").name == "Jet2"
+    assert db.get_airline("NOSUCH") is None
+
+
+# ===========================================================================
 # 8. Pooling — two chains naming the same source share one download/build
 # ===========================================================================
 

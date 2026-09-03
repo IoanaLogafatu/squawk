@@ -289,6 +289,9 @@ def test_every_module_accepts_two_argument_signature(tmp_path, monkeypatch):
     import importlib
     import pkgutil
 
+    from config import DataSourceConfig
+    from config import config as squawk_config
+    from data_sources import clear_data_source_pool
     from modules import tar1090_db as tar1090_db_module
 
     # Avoid a real network call from tar1090_db's first-run CSV download.
@@ -296,6 +299,16 @@ def test_every_module_accepts_two_argument_signature(tmp_path, monkeypatch):
         tar1090_db_module, "_download",
         lambda path: (_ for _ in ()).throw(RuntimeError("no network in tests")),
     )
+
+    # vrs_route resolves its source through ctx.data_source(), which reads
+    # global config — give it a block to resolve. Constructing
+    # VrsStandingData does no I/O (that's all gated behind ensure_fresh()),
+    # so this is as safe as every other module's minimal cfg below.
+    clear_data_source_pool()
+    monkeypatch.setattr(squawk_config, "data_sources", {
+        "vrs": DataSourceConfig(name="vrs", type="vrs_standing_data", cfg={"type": "vrs_standing_data"}),
+    })
+    monkeypatch.setattr(squawk_config.squawk, "data_dir", str(tmp_path))
 
     ctx = ModuleContext(
         data_dir=tmp_path,
@@ -306,13 +319,20 @@ def test_every_module_accepts_two_argument_signature(tmp_path, monkeypatch):
     # Modules whose config has no sensible default get the minimum block that
     # constructs. altitude_band deliberately has no default edges: an
     # installation that doesn't say where its bands are doesn't get bands.
-    minimal_cfg = {"altitude_band": {"edges": [10000, 20000, 30000]}}
+    # vrs_route deliberately has no default source: a module naming no
+    # dataset has nothing to enrich from.
+    minimal_cfg = {
+        "altitude_band": {"edges": [10000, 20000, 30000]},
+        "vrs_route":     {"source": "vrs"},
+    }
 
     for info in pkgutil.iter_modules(modules.__path__):
         mod = importlib.import_module(f"modules.{info.name}")
         instance = mod.get(minimal_cfg.get(info.name, {}), ctx)
         assert isinstance(instance, modules.BaseModule), \
             f"modules/{info.name}.py's get() did not return a BaseModule"
+
+    clear_data_source_pool()
 
 
 def test_module_dir_keyed_on_type_not_block_name(tmp_path, monkeypatch):

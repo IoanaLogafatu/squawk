@@ -13,6 +13,8 @@ Covers:
   7. get() loads the real CSV without error
   10. process() re-checks CSV staleness hourly, not just at construction
   11. refresh_days is optional config, defaulting to 30
+  12. _needs_airframe() pre-check — self._db.get() is skipped once every
+      field this module could fill is already known (brief-tar1090-needs-check.md)
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ import pytest
 
 from modules.tar1090_db import (
     Tar1090DbEnricher, _SCHEMA_VERSION, _build_sqlite_db, _db_schema_version,
-    _load_db, _parse_db_flags,
+    _load_db, _needs_airframe, _parse_db_flags,
 )
 from schemas.aircraft import (
     Aircraft, AircraftLocation, AircraftMeta, AircraftRaw,

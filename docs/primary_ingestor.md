@@ -91,6 +91,8 @@ Every cycle follows the same shape:
 5. Call `storage.save_aircraft_array(aircraft_list)`.
 6. Sleep for `max(0, poll_interval_seconds - elapsed)`.
 
+`personal_adsb` inserts one optional step between 3 and 4: `_carry_forward_enrichment(aircraft, storage)` fills each freshly-converted `Aircraft`'s `UNKNOWN` `airframe`/`route` fields from that hex's record already in storage, so hex/callsign-keyed enrichment modules in `ingest_modules` (`tar1090_db`) don't repeat a lookup for an aircraft still in range. Not part of the required contract — a source with nothing to carry forward (`concorde` fabricates a complete airframe already) has no reason to add it — but any primary ingestor whose `ingest_modules` include a hex/callsign-keyed enrichment module should. See `docs/storage-guide.md`'s `STALE_SECONDS` section for the mechanism and the route-vs-callsign caveat.
+
 The cycle compensates for fetch duration so polling cadence stays stable under variable network conditions. A slow fetch never causes a tight loop; a fast one never overshoots the configured interval.
 
 ## Error handling
