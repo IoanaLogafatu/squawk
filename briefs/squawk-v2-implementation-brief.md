@@ -305,3 +305,40 @@ instance attribute is enough.
 All of the above, plus a short `README.md` section on how to run the five
 processes locally, plus `config.toml.example` reflecting the config in this
 brief.
+
+
+=======================================
+Done. All 63 tests pass, and I ran the five processes live end to end.
+
+What's there
+Base build complete at the repo root (the brief's squawk/ folder is the repo root, matching V1's layout — main.py and config.py at top level).
+
+
+main.py  config.py  schemas/  chains/  ingest/  snapshot/  output/  transforms/  services/  tests/
+~3,350 lines including tests. Every module type subclasses its base; each package's __init__.py is a registry mapping the config.toml type name to a class, so adding a feature is: write the class, add one registry line, reference it from config. No core changes.
+
+Decisions the brief asked me to state
+Schema: plain dataclasses, not pydantic — no dependency, and Optional[...] = None throughout gives the "not yet known" sentinel the merge rule needs. to_json/from_json are written against the dataclass definitions generically, so adding a field needs no serialiser edit and old snapshot files still load.
+
+Concorde profile: linear climb from 2,000 ft at spawn to 12,000 ft overhead, mirrored descent back to 2,000 ft at despawn. Constant 300 kt, so vertical rate is a clean ±1,000 fpm either side of the midpoint — easy to eyeball on the console. 100 nm pass, twenty minutes.
+
+Deletion notification: implemented, not stubbed. _deletions/ holds timestamp-named notices; each output chain keeps its own cursor at data/output/<name>/deletions_cursor.txt, so every chain sees every deletion exactly once regardless of poll rate, and a restart resumes rather than replaying. BaseOutput.on_deleted() is a no-op by default; console overrides it to print GONE. The snapshot chain prunes notices after deletion_retention_minutes (default 60).
+
+Two things to confirm with you
+§7's transform question — I took the clarifying note as authoritative: the snapshot chain's transform list runs once over the incoming batch at the top of save(), before any merge decision, not per-field and not re-run on the merged result. Say if you meant the first reading.
+
+meta.ingest_source is provenance for the track, not the write. It's a fill-if-blank field under your rule, so when concorde_B merges into a record concorde_A created, the field still says concorde_A. I kept the specified behaviour and documented it, but if you want "who last touched this", it needs to join last_seen as an always-overwrite exception.
+
+Also worth flagging: last_seen had to become an always-overwrite exception beyond the three you listed. It's never blank on a stored record, so fill-if-blank would freeze it at the first observation and expire an aircraft mid-flight.
+
+I couldn't find a v2 spec document on the machine (only V1's briefs and docs), so the schema shape is derived from the sub-object names in your brief — Route holds origin/destination as Airport and airline as Airline. Check schemas/aircraft.py against the spec you had in mind.
+
+Found and fixed while building
+Console output block-buffers when piped — a chain redirected to a file appeared to produce nothing for minutes. Now flushed per poll.
+A chain that failed validation also reported "no ingest chains configured", burying the real error. Now checked against the raw tables.
+Live verification
+Five processes, real run: snapshot populated and updated, both output chains printed, merges logged from both ingest chains, and after stopping the ingest chains the record expired and each output chain printed GONE exactly once.
+
+The locking tests use real OS processes, not threads. I checked they're load-bearing by disabling the flock — all three concurrency tests fail without it.
+
+I have not committed — you didn't ask, and note.txt suggests you drive the base-code → main squash yourself. Everything is untracked and ready; config.toml and data/ are correctly gitignored. Say the word and I'll commit to base-code.

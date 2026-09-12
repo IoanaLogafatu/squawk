@@ -1,0 +1,81 @@
+# Squawk configuration.
+#
+# Copy to config.toml and edit. config.toml is gitignored; this file is the
+# version-controlled reference, so keep it in step when adding keys.
+#
+# Validation is strict: an unknown key, an unknown module type or an unknown
+# transform stops Squawk at start-up rather than being quietly ignored.
+
+# Where all runtime state lives — the snapshot, service state, output
+# cursors. Relative paths are relative to wherever you run main.py from.
+data_dir = "data"
+
+# Where you are watching from. Ranges and bearings are measured from here,
+# and the Concorde simulator flies her passes over it.
+observer_latitude  = 52.00
+observer_longitude = -1.00
+
+# Services are shared state files, not processes — nothing to start.
+services = ["concorde"]
+
+
+# ---------------------------------------------------------------------------
+# The snapshot — exactly one block, no name
+# ---------------------------------------------------------------------------
+
+[snapshot_chain]
+type = "file_object"
+
+# Applied to every incoming batch before it is merged.
+transform = ["nop"]
+
+# An aircraft unseen for this long is deleted, and its output chains told.
+expiry_minutes = 5
+
+# How often the expiry process wakes up.
+scan_interval_seconds = 30
+
+# How long a deletion notice is kept for output chains to pick up. Must
+# comfortably exceed the slowest output chain's poll_interval_seconds.
+deletion_retention_minutes = 60
+
+debug_level = "info"
+
+
+# ---------------------------------------------------------------------------
+# Ingest chains — one process each
+# ---------------------------------------------------------------------------
+
+# Two identical Concorde chains, on purpose: they observe the same aircraft
+# on independent schedules, which is what exercises the snapshot merge.
+
+[ingest_chain.concorde_A]
+type = "ingest_concorde"
+transform = ["nop"]
+poll_min_seconds = 5
+poll_max_seconds = 20
+debug_level = "info"
+
+[ingest_chain.concorde_B]
+type = "ingest_concorde"
+transform = ["nop"]
+poll_min_seconds = 5
+poll_max_seconds = 20
+debug_level = "info"
+
+
+# ---------------------------------------------------------------------------
+# Output chains — one process each
+# ---------------------------------------------------------------------------
+
+[output_chain.display]
+type = "output_console"
+transform = ["nop"]
+poll_interval_seconds = 5
+debug_level = "info"
+
+[output_chain.history]
+type = "output_console"
+transform = ["nop"]
+poll_interval_seconds = 5
+debug_level = "info"
